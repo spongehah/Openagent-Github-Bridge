@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -49,11 +50,11 @@ type OpenCodeModel struct {
 }
 
 // SessionCreateRequest represents a request to create a new session.
-// API: POST /session
+// API: POST /session?directory=<path>
 // Reference: https://open-code.ai/docs/en/server#sessions
 type SessionCreateRequest struct {
-	Title     string `json:"title,omitempty"`     // Session title
-	Directory string `json:"directory,omitempty"` // Initial working directory for the session
+	Title    string `json:"title,omitempty"`    // Session title
+	ParentID string `json:"parentID,omitempty"` // Optional parent session ID
 }
 
 // SessionResponse represents a session object from OpenCode.
@@ -237,13 +238,13 @@ func (a *OpenCodeAdapter) buildPrompt(task TaskContext) string {
 	return sb.String()
 }
 
-// createSession creates a new session in OpenCode.
-// API: POST /session
+// createSession creates a new session in OpenCode with the specified working directory.
+// API: POST /session?directory=<path>
 // Reference: https://open-code.ai/docs/en/server#sessions
+// Note: The working directory is passed as a query parameter, not in the request body.
 func (a *OpenCodeAdapter) createSession(ctx context.Context, title, directory string) (*SessionResponse, error) {
 	reqBody := SessionCreateRequest{
-		Title:     title,
-		Directory: directory,
+		Title: title,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -251,7 +252,11 @@ func (a *OpenCodeAdapter) createSession(ctx context.Context, title, directory st
 		return nil, fmt.Errorf("failed to marshal session request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/session", bytes.NewBuffer(jsonBody))
+	// directory is a query param per OpenCode server API spec
+	params := url.Values{}
+	params.Set("directory", directory)
+	reqURL := fmt.Sprintf("%s/session?%s", a.baseURL, params.Encode())
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
