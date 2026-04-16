@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  bridge:
+    build: .
+    ports:
+      - "7777:7777"
+    environment:
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - OPENCODE_HOST=${OPENCODE_HOST:-http://localhost:3000}
+      - OPENCODE_API_KEY=${OPENCODE_API_KEY}
+    volumes:
+      - ./config:/app/config:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7777/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Redis for session persistence
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    profiles:
+      - with-redis
+
+volumes:
+  redis-data:

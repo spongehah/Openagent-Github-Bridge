@@ -1,0 +1,105 @@
+# Openagent-Github-Bridge 配置文件
+# 环境变量优先级高于配置文件
+
+server:
+  host: "0.0.0.0"
+  port: 7777
+  read_timeout: "30s"
+  write_timeout: "30s"
+
+github:
+  # GitHub Webhook 密钥 (用于验证签名)
+  webhook_secret: "${GITHUB_WEBHOOK_SECRET}"
+  # GitHub Personal Access Token 或 GitHub App Token
+  token: "${GITHUB_TOKEN}"
+  # 可选：GitHub App 配置
+  app_id: ""
+  app_private_key_path: ""
+  # API 基础 URL (企业版可自定义)
+  api_base_url: "https://api.github.com"
+
+# OpenCode Server 配置 (默认/单仓库模式)
+# Reference: https://open-code.ai/docs/en/server
+#
+# 重要：OpenCode 必须在仓库目录中启动
+# 示例：cd ~/repos/owner/repo && opencode --server --port 4096
+opencode:
+  # OpenCode Server 地址 (默认端口 4096)
+  host: "${OPENCODE_HOST:http://localhost:4096}"
+  # HTTP Basic Auth 用户名 (可选，默认 "opencode")
+  # Reference: https://open-code.ai/docs/en/server#authentication
+  username: "${OPENCODE_SERVER_USERNAME:opencode}"
+  # HTTP Basic Auth 密码 (可选，留空则不启用鉴权)
+  password: "${OPENCODE_SERVER_PASSWORD:}"
+  # 默认模型
+  default_model: "anthropic/claude-sonnet-4-20250514"
+  # 请求超时
+  timeout: "120s"
+
+# 多仓库模式配置 (可选)
+# 当需要支持多个仓库时，为每个仓库配置独立的 OpenCode 实例
+# 格式: "owner/repo" -> OpenCode 配置
+#
+# 每个 OpenCode 实例必须在对应仓库目录中启动：
+#   cd ~/repos/owner1/repo1 && opencode --server --port 4096
+#   cd ~/repos/owner2/repo2 && opencode --server --port 4097
+#
+# repositories:
+#   "owner1/repo1":
+#     opencode_host: "http://localhost:4096"
+#     opencode_username: "opencode"
+#     opencode_password: ""
+#   "owner2/repo2":
+#     opencode_host: "http://localhost:4097"
+#     opencode_username: "opencode"
+#     opencode_password: ""
+
+queue:
+  # 工作协程数量
+  workers: 5
+  # 任务队列缓冲大小
+  buffer_size: 100
+
+session:
+  # 存储类型: memory | redis
+  storage: "memory"
+  # Session 过期时间
+  ttl: "24h"
+  # Redis 配置 (当 storage 为 redis 时生效)
+  redis:
+    addr: "localhost:6379"
+    password: ""
+    db: 0
+
+log:
+  # 日志级别: debug | info | warn | error
+  level: "info"
+  # 日志格式: json | text
+  format: "json"
+
+# 触发配置 (通用)
+trigger:
+  # 用于触发 Agent 的前缀 (在评论中 @openagent)
+  prefix: "@openagent"
+  # 是否响应所有 Issue (否则只响应带前缀的)
+  respond_all_issues: false
+
+# 功能开关配置
+# 原则：只有实际触发动作的事件才需要 enable 配置
+features:
+  # AI-Fix 标签触发功能 (Issue 被打上标签时触发自动修复)
+  ai_fix:
+    enabled: true
+    labels:
+      - "ai-fix"
+
+  # PR 自动 Review 功能
+  pr_review:
+    # PR 创建时自动 review (会检查 draft/bot 状态)
+    enabled: false
+    skip_draft_prs: true
+    skip_bot_prs: true
+    # PR 被打上标签时触发 review (不检查 draft/bot)
+    label_trigger_enabled: true
+    labels:
+      - "ai-review"
