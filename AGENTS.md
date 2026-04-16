@@ -77,9 +77,10 @@ features:
 
 ```go
 // 创建 worktree 的流程
-1. Bridge 调用 Agent 的 /workspace 命令
-2. Agent 创建分支和 worktree
-3. Bridge 下发任务到该 worktree
+1. Bridge 调用 agent 侧 `worktree-manager` companion service
+2. companion service 创建或复用 git worktree，并返回 `worktreePath`
+3. Bridge 创建正式 OpenCode session，绑定到该目录
+4. Bridge 下发任务到该 worktree session
 ```
 
 ### 4. Session 管理与复用
@@ -143,8 +144,10 @@ opencode:
 repositories:
   "owner1/repo1":
     opencode_host: "http://localhost:4096"
+    worktree_manager_host: "http://localhost:4081"
   "owner2/repo2":
     opencode_host: "http://localhost:4097"
+    worktree_manager_host: "http://localhost:4082"
 ```
 
 **启动 OpenCode 的正确方式：**

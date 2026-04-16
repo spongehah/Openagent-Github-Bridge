@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -45,10 +46,12 @@ func main() {
 	if openCodeAgent.IsMultiRepoMode() {
 		log.Printf("Multi-repo mode enabled with %d repositories", len(cfg.Repositories))
 		for repo := range cfg.Repositories {
-			log.Printf("  - %s -> %s", repo, cfg.Repositories[repo].OpenCodeHost)
+			owner, name, _ := strings.Cut(repo, "/")
+			repoCfg := cfg.GetOpenCodeConfigForRepo(owner, name)
+			log.Printf("  - %s -> opencode=%s worktree-manager=%s", repo, repoCfg.Host, repoCfg.WorktreeManagerHost)
 		}
 	} else {
-		log.Printf("Single-repo mode: using default OpenCode at %s", cfg.OpenCode.Host)
+		log.Printf("Single-repo mode: opencode=%s worktree-manager=%s", cfg.OpenCode.Host, cfg.OpenCode.WorktreeManagerHost)
 	}
 
 	// Initialize bridge service (fire-and-forget pattern)

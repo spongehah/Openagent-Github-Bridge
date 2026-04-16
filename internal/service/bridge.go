@@ -73,11 +73,13 @@ func (s *BridgeService) Process(ctx context.Context, task *queue.Task) error {
 		RepoOwner:      task.Owner,
 		RepoName:       task.Repo,
 		Branch:         task.Branch,
-		DefaultBranch:  task.Branch,
+		DefaultBranch:  s.getDefaultBranch(task),
+		BaseBranch:     task.BaseBranch,
 		IssueNumber:    task.Number,
 		IssueTitle:     task.Title,
-		IssueBody:      task.IssueBody,
+		IssueBody:      s.getIssueBody(task),
 		Labels:         task.Labels,
+		HeadSHA:        task.HeadSHA,
 		EventType:      string(task.Type),
 		EventAction:    task.Action,
 		CommentBody:    task.CommentBody,
@@ -227,10 +229,28 @@ func (s *BridgeService) getMatchedTriggerLabel(task *queue.Task) string {
 // getSessionKey creates a session key from the task.
 func (s *BridgeService) getSessionKey(task *queue.Task) session.SessionKey {
 	sessionType := session.SessionTypeIssue
-	if task.Type == queue.TaskTypePullRequest || task.Type == queue.TaskTypePRComment {
+	if task.Type == queue.TaskTypePullRequest || task.Type == queue.TaskTypePRComment || task.Type == queue.TaskTypePRReview {
 		sessionType = session.SessionTypePullRequest
 	}
 	return session.NewSessionKey(task.Owner, task.Repo, sessionType, task.Number)
+}
+
+// getDefaultBranch returns the repository default branch for issue-scoped tasks.
+func (s *BridgeService) getDefaultBranch(task *queue.Task) string {
+	switch task.Type {
+	case queue.TaskTypeIssue, queue.TaskTypeIssueComment:
+		return task.Branch
+	default:
+		return ""
+	}
+}
+
+// getIssueBody keeps the issue content populated even for non-comment issue events.
+func (s *BridgeService) getIssueBody(task *queue.Task) string {
+	if task.IssueBody != "" {
+		return task.IssueBody
+	}
+	return task.Body
 }
 
 // PromptBuilder constructs prompts for the AI agent.

@@ -14,9 +14,11 @@ GitHub Webhook 到 AI Agent 的桥接服务，支持自动修复 Issue 和 PR Re
 
 ```
 GitHub Webhook --> Bridge --> OpenCode Agent --> GitHub PR/Comment
+                    |              ^
                     |              |
-                    |              +-- 创建 git worktree
-                    |              +-- 执行任务
+                    |              +-- worktree-manager (agent-side HTTP service)
+                    |                    +-- 创建/复用 git worktree
+                    |                    +-- 返回可绑定目录
                     +-- Session 管理 (复用 Agent Session)
                     +-- 任务队列 (异步处理)
 ```
@@ -100,6 +102,54 @@ opencode server --port 4097
 # 可使用 systemd 或 supervisor 管理多个实例
 ```
 
+#### 1.4 启动必需的 worktree-manager companion service
+
+**这是必备步骤。**
+
+如果没有启动 agent 侧 `worktree-manager` companion service，Bridge 无法让每个 Issue/PR 在独立的 git worktree 中工作，worktree 隔离链路就不会成立。
+
+服务源码在当前仓库：
+
+```text
+plugins/worktree-manager/
+```
+
+推荐在与 OpenCode 相同的机器上启动，且 `WORKTREE_MANAGER_REPO_ROOT` 必须指向当前 OpenCode 实例对应的仓库根目录。
+
+示例：
+
+```bash
+cd /path/to/openagent-github-bridge
+
+export WORKTREE_MANAGER_REPO_ROOT="/Users/example/repos/openagent/github-bridge"
+export WORKTREE_MANAGER_ADDR="127.0.0.1:4081"
+export WORKTREE_MANAGER_PASSWORD=""
+
+go run ./plugins/worktree-manager
+```
+
+编译运行：
+
+```bash
+go build -o ./bin/worktree-manager ./plugins/worktree-manager
+
+WORKTREE_MANAGER_REPO_ROOT="/Users/example/repos/openagent/github-bridge" \
+WORKTREE_MANAGER_ADDR="127.0.0.1:4081" \
+./bin/worktree-manager
+```
+
+启动后确认服务可用：
+
+```bash
+curl http://127.0.0.1:4081/health
+```
+
+服务的详细参数和行为说明见：
+
+```text
+plugins/worktree-manager/README.md
+```
+
 ### 2. GitHub 侧准备
 
 #### 2.1 创建 Webhook
@@ -150,6 +200,7 @@ github:
 opencode:
   host: "http://localhost:4096"          # OpenCode server 地址
   password: "your-secure-password"        # 与 OpenCode server 一致（可选）
+  worktree_manager_host: "http://localhost:4081"  # agent 侧 companion service
 
 # 功能开关
 features:
@@ -168,8 +219,10 @@ features:
 repositories:
   "owner1/repo1":
     opencode_host: "http://localhost:4096"
+    worktree_manager_host: "http://localhost:4081"
   "owner2/repo2":
     opencode_host: "http://localhost:4097"
+    worktree_manager_host: "http://localhost:4082"
 ```
 
 **运行模式说明：**
@@ -189,6 +242,8 @@ repositories:
 export GITHUB_WEBHOOK_SECRET="your-webhook-secret"
 export OPENCODE_HOST="http://localhost:4096"
 export OPENCODE_SERVER_PASSWORD="your-secure-password"
+export WORKTREE_MANAGER_HOST="http://localhost:4081"
+export WORKTREE_MANAGER_PASSWORD=""
 ```
 
 ### 4. 启动服务
@@ -221,6 +276,7 @@ docker run -d \
   -p 7777:7777 \
   -e GITHUB_WEBHOOK_SECRET="xxx" \
   -e OPENCODE_HOST="http://host.docker.internal:4096" \
+  -e WORKTREE_MANAGER_HOST="http://host.docker.internal:4081" \
   openagent-bridge
 ```
 
@@ -232,10 +288,13 @@ docker run -d \
 2. GitHub 发送 webhook 到 Bridge
 3. Bridge 验证签名，解析事件
 4. Bridge 创建/获取 Session（复用同一 Issue 的 Session）
-5. Bridge 调用 OpenCode：
-   - 如果是新 Session：创建 worktree（基于 main 分支，分支名 `issue-{number}`）
+5. Bridge 调用 agent 侧 worktree-manager：
+   - 如果是新 Session：创建或复用 worktree（基于默认分支，分支名 `issue-{number}`）
+   - 返回 `worktreePath`
+6. Bridge 调用 OpenCode：
+   - 创建正式 session，并绑定到返回的 `worktreePath`
    - 发送 prompt（包含 Issue 内容和仓库信息）
-6. OpenCode 独立工作：
+7. OpenCode 独立工作：
    - 分析 Issue
    - 在 worktree 中修改代码
    - 创建 PR（包含 `Fixes #{number}`）
@@ -244,10 +303,13 @@ docker run -d \
 
 1. 用户创建 PR 或添加 `ai-review` 标签
 2. GitHub 发送 webhook 到 Bridge
-3. Bridge 调用 OpenCode：
-   - 创建 worktree（基于 PR 的 head branch）
+3. Bridge 调用 agent 侧 worktree-manager：
+   - 如果是新 Session：创建或复用 worktree（基于 PR head ref / head SHA，分支名 `pr-{number}`）
+   - 返回 `worktreePath`
+4. Bridge 调用 OpenCode：
+   - 创建正式 session，并绑定到返回的 `worktreePath`
    - 发送 review prompt
-4. OpenCode 独立工作：
+5. OpenCode 独立工作：
    - 检出 PR 代码
    - 进行代码审查
    - 提交 review comments
@@ -260,6 +322,8 @@ docker run -d \
 | `github.webhook_secret` | `GITHUB_WEBHOOK_SECRET` | - | Webhook 签名密钥 |
 | `opencode.host` | `OPENCODE_HOST` | `http://localhost:4096` | OpenCode 地址 |
 | `opencode.password` | `OPENCODE_SERVER_PASSWORD` | - | OpenCode 鉴权密码 |
+| `opencode.worktree_manager_host` | `WORKTREE_MANAGER_HOST` | `http://localhost:4081` | agent 侧 worktree-manager 地址 |
+| `opencode.worktree_manager_password` | `WORKTREE_MANAGER_PASSWORD` | - | worktree-manager 鉴权密码 |
 | `features.ai_fix.enabled` | - | `true` | 启用 AI-Fix |
 | `features.pr_review.enabled` | - | `false` | 启用 PR 自动 Review |
 | `features.pr_review.label_trigger_enabled` | - | `true` | 启用标签触发 Review |
@@ -278,11 +342,18 @@ docker run -d \
 2. 检查鉴权配置是否一致
 3. 检查网络连通性
 
+### worktree-manager 连接失败
+
+1. 检查 companion service 是否运行：`curl http://localhost:4081/health`
+2. 检查 `worktree_manager_host` 配置是否与实际端口一致
+3. 检查 `WORKTREE_MANAGER_REPO_ROOT` 是否指向正确仓库根目录
+4. 如果启用了 Basic Auth，检查 `worktree_manager_username/password` 是否一致
+
 ### Worktree 创建失败
 
-1. 确认 OpenCode 已预先 clone 仓库
-2. 检查 OpenCode 对仓库的写权限
-3. 检查是否有同名 worktree 已存在
+1. 确认 worktree-manager 对仓库和 `~/.opencode/worktrees` 有写权限
+2. 检查目标 ref 是否已经 fetch 到本地，以及是否存在残留同名 worktree
+3. 检查 companion service 的 `WORKTREE_MANAGER_REPO_ROOT` 是否和 OpenCode 实例对应同一个仓库
 
 ### PR 创建失败
 

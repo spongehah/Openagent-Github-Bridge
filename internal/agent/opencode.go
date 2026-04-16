@@ -4,7 +4,6 @@
 // References:
 // - OpenCode Server API: https://open-code.ai/docs/en/server
 // - OpenCode SDK: https://opencode.ai/docs/sdk
-// - Worktree Plugin: https://github.com/kdcokenny/opencode-worktree
 package agent
 
 import (
@@ -21,6 +20,8 @@ import (
 	"github.com/openagent/github-bridge/internal/config"
 )
 
+const defaultOpenCodeTimeout = 30 * time.Second
+
 // OpenCodeAdapter implements the Agent interface using OpenCode Server HTTP API.
 //
 // It dispatches tasks to OpenCode and returns immediately (fire-and-forget).
@@ -31,11 +32,52 @@ import (
 //
 // API Reference: https://open-code.ai/docs/en/server#apis
 type OpenCodeAdapter struct {
-	baseURL    string
-	username   string // HTTP Basic Auth username (default: "opencode")
-	password   string // HTTP Basic Auth password
-	timeout    time.Duration
-	httpClient *http.Client
+	baseURL         string
+	username        string // HTTP Basic Auth username (default: "opencode")
+	password        string // HTTP Basic Auth password
+	timeout         time.Duration
+	httpClient      *http.Client
+	model           *OpenCodeModel
+	worktreeManager *WorktreeManagerClient
+}
+
+// OpenCodeModel represents the model payload used by the HTTP API.
+// Reference: https://opencode.ai/docs/sdk
+type OpenCodeModel struct {
+	ProviderID string `json:"providerID"`
+	ModelID    string `json:"modelID"`
+}
+
+// SessionCreateRequest represents a request to create a new session.
+// API: POST /session
+// Reference: https://open-code.ai/docs/en/server#sessions
+type SessionCreateRequest struct {
+	Title     string `json:"title,omitempty"`     // Session title
+	Directory string `json:"directory,omitempty"` // Initial working directory for the session
+}
+
+// SessionResponse represents a session object from OpenCode.
+// Reference: https://open-code.ai/docs/en/server#sessions
+type SessionResponse struct {
+	ID        string `json:"id"`
+	Title     string `json:"title,omitempty"`
+	Directory string `json:"directory,omitempty"`
+	CreatedAt string `json:"createdAt,omitempty"`
+}
+
+// MessagePart represents a request message part.
+// Reference: https://opencode.ai/docs/sdk#messages
+type MessagePart struct {
+	Type string `json:"type"` // "text"
+	Text string `json:"text"`
+}
+
+// MessageRequest represents a request to send a message to a session.
+// API: POST /session/:id/prompt_async
+// Reference: https://open-code.ai/docs/en/server#messages
+type MessageRequest struct {
+	Model *OpenCodeModel `json:"model,omitempty"`
+	Parts []MessagePart  `json:"parts"`
 }
 
 // NewOpenCodeAdapter creates a new OpenCode adapter.
@@ -46,132 +88,50 @@ type OpenCodeAdapter struct {
 func NewOpenCodeAdapter(cfg config.OpenCodeConfig) *OpenCodeAdapter {
 	username := cfg.Username
 	if username == "" {
-		username = "opencode" // Default username per OpenCode docs
+		username = "opencode"
+	}
+
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = defaultOpenCodeTimeout
 	}
 
 	return &OpenCodeAdapter{
 		baseURL:  strings.TrimSuffix(cfg.Host, "/"),
 		username: username,
 		password: cfg.Password,
-		timeout:  cfg.Timeout,
+		timeout:  timeout,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second, // Short timeout for dispatch only
+			Timeout: timeout,
 		},
+		model:           parseOpenCodeModel(cfg.DefaultModel),
+		worktreeManager: NewWorktreeManagerClient(cfg, timeout),
 	}
 }
-
-// setAuthHeader sets HTTP Basic Auth header if password is configured.
-// Reference: https://open-code.ai/docs/en/server#authentication
-func (a *OpenCodeAdapter) setAuthHeader(req *http.Request) {
-	if a.password != "" {
-		auth := base64.StdEncoding.EncodeToString([]byte(a.username + ":" + a.password))
-		req.Header.Set("Authorization", "Basic "+auth)
-	}
-}
-
-// ============================================================================
-// OpenCode API Request/Response Structures
-// Reference: https://open-code.ai/docs/en/server#apis
-// ============================================================================
-
-// SessionCreateRequest represents a request to create a new session.
-// API: POST /session
-// Reference: https://open-code.ai/docs/en/server#sessions
-type SessionCreateRequest struct {
-	ParentID string `json:"parentID,omitempty"` // Parent session ID for forking
-	Title    string `json:"title,omitempty"`    // Session title
-}
-
-// SessionResponse represents a session object from OpenCode.
-// Reference: https://open-code.ai/docs/en/server#sessions
-type SessionResponse struct {
-	ID        string `json:"id"`
-	Title     string `json:"title,omitempty"`
-	CreatedAt string `json:"createdAt,omitempty"`
-}
-
-// MessagePart represents a part of a message.
-// Reference: https://opencode.ai/docs/sdk#messages
-type MessagePart struct {
-	Type string `json:"type"` // "text"
-	Text string `json:"text"`
-}
-
-// PromptRequest represents a request to send a message to a session.
-// API: POST /session/:id/message (sync) or POST /session/:id/prompt_async (async)
-// Reference: https://open-code.ai/docs/en/server#messages
-type PromptRequest struct {
-	Parts   []MessagePart `json:"parts"`             // Message parts
-	NoReply bool          `json:"noReply,omitempty"` // If true, returns immediately without waiting for response
-}
-
-// WorktreeCreateRequest represents a request to create a worktree via slash command.
-// Uses the /workspace slash command endpoint.
-// API: POST /session/:id/command
-// Reference: https://open-code.ai/docs/en/server#messages
-type CommandRequest struct {
-	Command   string            `json:"command"`   // e.g., "/workspace"
-	Arguments map[string]string `json:"arguments"` // e.g., {"branch": "issue-123"}
-}
-
-// ============================================================================
-// Main Dispatch Logic
-// ============================================================================
 
 // DispatchTask sends a task to OpenCode and returns immediately.
 //
 // Flow:
-// 1. Reuse existing session OR create new session for this issue/PR
-// 2. If new session: Create worktree for isolation (based on repo's default branch)
+// 1. Reuse existing session OR create a new isolated session for this issue/PR
+// 2. If new session: call the companion worktree-manager service, then create an OpenCode session in that path
 // 3. Send prompt asynchronously (fire-and-forget)
-//
-// Session Reuse:
-// - If task.AgentSessionID is set, reuse that session (continuing conversation)
-// - If empty, create a new session and worktree
-//
-// Worktree Creation:
-// - Based on the repository's default branch (e.g., main)
-// - Branch name format: {type}-{number} (e.g., issue-123, pr-456)
-// - Requires OpenCode to have the repository pre-cloned
-//
-// OpenCode handles execution, GitHub interaction, and PR creation asynchronously.
 func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*DispatchResult, error) {
-	var sessionID string
-	isNewSession := task.AgentSessionID == ""
+	sessionID := task.AgentSessionID
 
-	if isNewSession {
-		// Step 1a: Create a new session
-		// API: POST /session
-		session, err := a.createSession(ctx, task.SessionKey)
+	if sessionID == "" {
+		session, err := a.createIsolatedSession(ctx, task)
 		if err != nil {
 			return &DispatchResult{
 				Dispatched: false,
-				Error:      fmt.Sprintf("failed to create session: %v", err),
+				Error:      fmt.Sprintf("failed to create isolated session: %v", err),
 			}, err
 		}
 		sessionID = session.ID
-
-		// Step 2: Create worktree for isolation (only for new sessions)
-		// Uses /workspace command to create isolated git worktree
-		// Based on the repository's default branch
-		worktreeBranch := a.getWorktreeBranch(task)
-		if err := a.createWorktree(ctx, sessionID, task, worktreeBranch); err != nil {
-			// Log warning but continue - worktree creation is best-effort
-			// OpenCode may work in main workspace if worktree fails
-			fmt.Printf("[OpenCode] Warning: failed to create worktree %s: %v\n", worktreeBranch, err)
-		}
 	} else {
-		// Step 1b: Reuse existing session
-		sessionID = task.AgentSessionID
 		fmt.Printf("[OpenCode] Reusing existing session: %s\n", sessionID)
 	}
 
-	// Step 3: Build the prompt with full context
 	prompt := a.buildPrompt(task)
-
-	// Step 4: Send prompt asynchronously (fire-and-forget)
-	// API: POST /session/:id/prompt_async
-	// Returns 204 No Content immediately
 	if err := a.sendPromptAsync(ctx, sessionID, prompt); err != nil {
 		return &DispatchResult{
 			Dispatched: false,
@@ -186,14 +146,63 @@ func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*
 	}, nil
 }
 
-// getWorktreeBranch generates the worktree branch name for a task.
-// Format: {type}-{number} (e.g., "issue-123", "pr-456")
-func (a *OpenCodeAdapter) getWorktreeBranch(task TaskContext) string {
-	taskType := "issue"
-	if strings.Contains(task.EventType, "pull_request") {
-		taskType = "pr"
+// HealthCheck verifies the OpenCode server and companion worktree service are reachable.
+// Reference: https://open-code.ai/docs/en/server#global
+func (a *OpenCodeAdapter) HealthCheck(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.baseURL+"/global/health", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create health check request: %w", err)
 	}
-	return fmt.Sprintf("%s-%d", taskType, task.IssueNumber)
+
+	a.setAuthHeader(req)
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("health check request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("health check returned status %d", resp.StatusCode)
+	}
+
+	if a.worktreeManager == nil {
+		return fmt.Errorf("worktree-manager client is not configured")
+	}
+
+	if err := a.worktreeManager.HealthCheck(ctx); err != nil {
+		return fmt.Errorf("worktree-manager health check failed: %w", err)
+	}
+
+	return nil
+}
+
+// createIsolatedSession prepares the worktree through the companion service
+// and then creates the long-lived OpenCode session inside that directory.
+func (a *OpenCodeAdapter) createIsolatedSession(ctx context.Context, task TaskContext) (*SessionResponse, error) {
+	if a.worktreeManager == nil || a.worktreeManager.baseURL == "" {
+		return nil, fmt.Errorf("worktree-manager host is not configured")
+	}
+
+	worktreeReq, err := buildWorktreeCreateRequest(task)
+	if err != nil {
+		return nil, err
+	}
+
+	worktreeResult, err := a.worktreeManager.CreateOrReuse(ctx, worktreeReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create or reuse worktree: %w", err)
+	}
+	if strings.TrimSpace(worktreeResult.WorktreePath) == "" {
+		return nil, fmt.Errorf("worktree-manager returned an empty worktreePath")
+	}
+
+	finalSession, err := a.createSession(ctx, task.SessionKey, worktreeResult.WorktreePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create final session in worktree %s: %w", worktreeResult.WorktreePath, err)
+	}
+
+	return finalSession, nil
 }
 
 // buildPrompt constructs the full prompt with repository and issue context.
@@ -203,7 +212,18 @@ func (a *OpenCodeAdapter) buildPrompt(task TaskContext) string {
 	sb.WriteString("# Task Context\n\n")
 	sb.WriteString(fmt.Sprintf("**Repository:** %s/%s\n", task.RepoOwner, task.RepoName))
 	sb.WriteString(fmt.Sprintf("**Clone URL:** %s\n", task.RepoURL))
-	sb.WriteString(fmt.Sprintf("**Default Branch:** %s\n", task.DefaultBranch))
+	if task.DefaultBranch != "" {
+		sb.WriteString(fmt.Sprintf("**Default Branch:** %s\n", task.DefaultBranch))
+	}
+	if task.BaseBranch != "" {
+		sb.WriteString(fmt.Sprintf("**Base Branch:** %s\n", task.BaseBranch))
+	}
+	if task.Branch != "" {
+		sb.WriteString(fmt.Sprintf("**Working Branch:** %s\n", task.Branch))
+	}
+	if task.HeadSHA != "" {
+		sb.WriteString(fmt.Sprintf("**Head SHA:** %s\n", task.HeadSHA))
+	}
 	sb.WriteString(fmt.Sprintf("**Issue/PR Number:** #%d\n", task.IssueNumber))
 	sb.WriteString(fmt.Sprintf("**Triggered by:** @%s\n", task.Sender))
 
@@ -212,23 +232,18 @@ func (a *OpenCodeAdapter) buildPrompt(task TaskContext) string {
 	}
 
 	sb.WriteString("\n---\n\n")
-
-	// Include the user-provided prompt (from PromptBuilder)
 	sb.WriteString(task.Prompt)
 
 	return sb.String()
 }
 
-// ============================================================================
-// OpenCode API Methods
-// ============================================================================
-
 // createSession creates a new session in OpenCode.
 // API: POST /session
 // Reference: https://open-code.ai/docs/en/server#sessions
-func (a *OpenCodeAdapter) createSession(ctx context.Context, title string) (*SessionResponse, error) {
+func (a *OpenCodeAdapter) createSession(ctx context.Context, title, directory string) (*SessionResponse, error) {
 	reqBody := SessionCreateRequest{
-		Title: title,
+		Title:     title,
+		Directory: directory,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -236,7 +251,7 @@ func (a *OpenCodeAdapter) createSession(ctx context.Context, title string) (*Ses
 		return nil, fmt.Errorf("failed to marshal session request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", a.baseURL+"/session", bytes.NewBuffer(jsonBody))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/session", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -263,68 +278,12 @@ func (a *OpenCodeAdapter) createSession(ctx context.Context, title string) (*Ses
 	return &session, nil
 }
 
-// createWorktree creates an isolated git worktree for the session.
-// Uses the /workspace slash command.
-//
-// Worktree is created based on the repository's default branch (e.g., main).
-// The new branch name corresponds to the issue/PR number (e.g., issue-123).
-//
-// Prerequisites:
-// - OpenCode must have the repository pre-cloned in its workspace
-// - Repository path: ~/repos/{owner}/{repo} (or configured in OpenCode)
-//
-// API: POST /session/:id/command
-// Reference: https://open-code.ai/docs/en/server#messages
-// Worktree Plugin: https://github.com/kdcokenny/opencode-worktree
-func (a *OpenCodeAdapter) createWorktree(ctx context.Context, sessionID string, task TaskContext, branch string) error {
-	// Build worktree creation arguments
-	// - repo: Repository identifier (owner/repo)
-	// - base: Base branch to create worktree from (e.g., main)
-	// - branch: New branch name for the worktree (e.g., issue-123)
-	reqBody := CommandRequest{
-		Command: "/workspace",
-		Arguments: map[string]string{
-			"repo":   fmt.Sprintf("%s/%s", task.RepoOwner, task.RepoName),
-			"base":   task.DefaultBranch,
-			"branch": branch,
-		},
-	}
-
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal command request: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/session/%s/command", a.baseURL, sessionID)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	a.setAuthHeader(httpReq)
-
-	resp, err := a.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Accept any 2xx status as success
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return nil
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	return fmt.Errorf("create worktree failed with status %d: %s", resp.StatusCode, string(body))
-}
-
 // sendPromptAsync sends a prompt to the session asynchronously (fire-and-forget).
 // API: POST /session/:id/prompt_async
 // Reference: https://open-code.ai/docs/en/server#messages
-// Returns 204 No Content immediately without waiting for AI response.
 func (a *OpenCodeAdapter) sendPromptAsync(ctx context.Context, sessionID, prompt string) error {
-	reqBody := PromptRequest{
+	reqBody := MessageRequest{
+		Model: a.model,
 		Parts: []MessagePart{
 			{
 				Type: "text",
@@ -339,7 +298,7 @@ func (a *OpenCodeAdapter) sendPromptAsync(ctx context.Context, sessionID, prompt
 	}
 
 	url := fmt.Sprintf("%s/session/%s/prompt_async", a.baseURL, sessionID)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -353,8 +312,6 @@ func (a *OpenCodeAdapter) sendPromptAsync(ctx context.Context, sessionID, prompt
 	}
 	defer resp.Body.Close()
 
-	// 204 No Content is the expected response for async prompt
-	// Also accept 200, 201, 202 as success
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
@@ -363,26 +320,32 @@ func (a *OpenCodeAdapter) sendPromptAsync(ctx context.Context, sessionID, prompt
 	return fmt.Errorf("send prompt failed with status %d: %s", resp.StatusCode, string(body))
 }
 
-// HealthCheck verifies the OpenCode server is reachable.
-// API: GET /global/health
-// Reference: https://open-code.ai/docs/en/server#global
-func (a *OpenCodeAdapter) HealthCheck(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", a.baseURL+"/global/health", nil)
-	if err != nil {
-		return fmt.Errorf("failed to create health check request: %w", err)
+// setAuthHeader sets HTTP Basic Auth header if password is configured.
+// Reference: https://open-code.ai/docs/en/server#authentication
+func (a *OpenCodeAdapter) setAuthHeader(req *http.Request) {
+	if a.password == "" {
+		return
 	}
 
-	a.setAuthHeader(req)
+	auth := base64.StdEncoding.EncodeToString([]byte(a.username + ":" + a.password))
+	req.Header.Set("Authorization", "Basic "+auth)
+}
 
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("health check request failed: %w", err)
+// parseOpenCodeModel converts config like "anthropic/claude-sonnet-4-20250514"
+// into the object payload expected by the local OpenCode HTTP runtime.
+func parseOpenCodeModel(raw string) *OpenCodeModel {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health check returned status %d", resp.StatusCode)
+	parts := strings.SplitN(raw, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return nil
 	}
 
-	return nil
+	return &OpenCodeModel{
+		ProviderID: parts[0],
+		ModelID:    parts[1],
+	}
 }

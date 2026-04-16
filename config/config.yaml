@@ -35,6 +35,12 @@ opencode:
   default_model: "anthropic/claude-sonnet-4-20250514"
   # 请求超时
   timeout: "120s"
+  # Agent 侧 worktree-manager 地址
+  worktree_manager_host: "${WORKTREE_MANAGER_HOST:http://localhost:4081}"
+  # worktree-manager Basic Auth 用户名
+  worktree_manager_username: "${WORKTREE_MANAGER_USERNAME:worktree-manager}"
+  # worktree-manager Basic Auth 密码 (留空则不启用鉴权)
+  worktree_manager_password: "${WORKTREE_MANAGER_PASSWORD:}"
 
 # 多仓库模式配置 (可选)
 # 当需要支持多个仓库时，为每个仓库配置独立的 OpenCode 实例
@@ -49,10 +55,16 @@ opencode:
 #     opencode_host: "http://localhost:4096"
 #     opencode_username: "opencode"
 #     opencode_password: ""
+#     worktree_manager_host: "http://localhost:4081"
+#     worktree_manager_username: "worktree-manager"
+#     worktree_manager_password: ""
 #   "owner2/repo2":
 #     opencode_host: "http://localhost:4097"
 #     opencode_username: "opencode"
 #     opencode_password: ""
+#     worktree_manager_host: "http://localhost:4082"
+#     worktree_manager_username: "worktree-manager"
+#     worktree_manager_password: ""
 
 queue:
   # 工作协程数量

@@ -12,23 +12,26 @@ import (
 
 // Config holds all configuration for the application.
 type Config struct {
-	Server       ServerConfig              `mapstructure:"server"`
-	GitHub       GitHubConfig              `mapstructure:"github"`
-	OpenCode     OpenCodeConfig            `mapstructure:"opencode"`      // Default OpenCode config (single repo mode)
+	Server       ServerConfig                `mapstructure:"server"`
+	GitHub       GitHubConfig                `mapstructure:"github"`
+	OpenCode     OpenCodeConfig              `mapstructure:"opencode"`     // Default OpenCode config (single repo mode)
 	Repositories map[string]RepositoryConfig `mapstructure:"repositories"` // Multi-repo mode: repo -> OpenCode mapping
-	Queue        QueueConfig               `mapstructure:"queue"`
-	Session      SessionConfig             `mapstructure:"session"`
-	Log          LogConfig                 `mapstructure:"log"`
-	Trigger      TriggerConfig             `mapstructure:"trigger"`
-	Features     FeaturesConfig            `mapstructure:"features"`
+	Queue        QueueConfig                 `mapstructure:"queue"`
+	Session      SessionConfig               `mapstructure:"session"`
+	Log          LogConfig                   `mapstructure:"log"`
+	Trigger      TriggerConfig               `mapstructure:"trigger"`
+	Features     FeaturesConfig              `mapstructure:"features"`
 }
 
 // RepositoryConfig holds OpenCode configuration for a specific repository.
 // Used in multi-repo mode where each repo has its own OpenCode instance.
 type RepositoryConfig struct {
-	OpenCodeHost     string `mapstructure:"opencode_host"`     // OpenCode server URL for this repo
-	OpenCodeUsername string `mapstructure:"opencode_username"` // HTTP Basic Auth username (optional)
-	OpenCodePassword string `mapstructure:"opencode_password"` // HTTP Basic Auth password (optional)
+	OpenCodeHost            string `mapstructure:"opencode_host"`             // OpenCode server URL for this repo
+	OpenCodeUsername        string `mapstructure:"opencode_username"`         // HTTP Basic Auth username (optional)
+	OpenCodePassword        string `mapstructure:"opencode_password"`         // HTTP Basic Auth password (optional)
+	WorktreeManagerHost     string `mapstructure:"worktree_manager_host"`     // Companion worktree-manager URL for this repo
+	WorktreeManagerUsername string `mapstructure:"worktree_manager_username"` // HTTP Basic Auth username (optional)
+	WorktreeManagerPassword string `mapstructure:"worktree_manager_password"` // HTTP Basic Auth password (optional)
 }
 
 // GetOpenCodeConfigForRepo returns the OpenCode configuration for a specific repository.
@@ -47,6 +50,15 @@ func (c *Config) GetOpenCodeConfigForRepo(owner, repo string) OpenCodeConfig {
 		}
 		if repoConfig.OpenCodePassword != "" {
 			cfg.Password = repoConfig.OpenCodePassword
+		}
+		if repoConfig.WorktreeManagerHost != "" {
+			cfg.WorktreeManagerHost = repoConfig.WorktreeManagerHost
+		}
+		if repoConfig.WorktreeManagerUsername != "" {
+			cfg.WorktreeManagerUsername = repoConfig.WorktreeManagerUsername
+		}
+		if repoConfig.WorktreeManagerPassword != "" {
+			cfg.WorktreeManagerPassword = repoConfig.WorktreeManagerPassword
 		}
 		return cfg
 	}
@@ -95,11 +107,14 @@ type GitHubConfig struct {
 // OpenCodeConfig holds OpenCode API configuration.
 // Reference: https://open-code.ai/docs/en/server#authentication
 type OpenCodeConfig struct {
-	Host         string        `mapstructure:"host"`
-	Username     string        `mapstructure:"username"` // HTTP Basic Auth username (default: "opencode")
-	Password     string        `mapstructure:"password"` // HTTP Basic Auth password (optional, set via OPENCODE_SERVER_PASSWORD)
-	DefaultModel string        `mapstructure:"default_model"`
-	Timeout      time.Duration `mapstructure:"timeout"`
+	Host                    string        `mapstructure:"host"`
+	Username                string        `mapstructure:"username"` // HTTP Basic Auth username (default: "opencode")
+	Password                string        `mapstructure:"password"` // HTTP Basic Auth password (optional, set via OPENCODE_SERVER_PASSWORD)
+	DefaultModel            string        `mapstructure:"default_model"`
+	Timeout                 time.Duration `mapstructure:"timeout"`
+	WorktreeManagerHost     string        `mapstructure:"worktree_manager_host"`     // Companion worktree-manager URL
+	WorktreeManagerUsername string        `mapstructure:"worktree_manager_username"` // Companion worktree-manager HTTP Basic Auth username
+	WorktreeManagerPassword string        `mapstructure:"worktree_manager_password"` // Companion worktree-manager HTTP Basic Auth password
 }
 
 // QueueConfig holds task queue configuration.
@@ -199,6 +214,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("opencode.password", "")                  // Empty = no auth
 	v.SetDefault("opencode.default_model", "anthropic/claude-sonnet-4-20250514")
 	v.SetDefault("opencode.timeout", "120s")
+	v.SetDefault("opencode.worktree_manager_host", "http://localhost:4081")
+	v.SetDefault("opencode.worktree_manager_username", "worktree-manager")
+	v.SetDefault("opencode.worktree_manager_password", "")
 
 	// Queue defaults
 	v.SetDefault("queue.workers", 5)
@@ -227,7 +245,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("features.ai_fix.labels", []string{"ai-fix"})
 
 	// PR Review: Auto review on PR opened or labeled
-	v.SetDefault("features.pr_review.enabled", false)              // PR opened auto-review: disabled by default
+	v.SetDefault("features.pr_review.enabled", false) // PR opened auto-review: disabled by default
 	v.SetDefault("features.pr_review.skip_draft_prs", true)
 	v.SetDefault("features.pr_review.skip_bot_prs", true)
 	v.SetDefault("features.pr_review.label_trigger_enabled", true) // PR label trigger: enabled by default
@@ -248,6 +266,9 @@ func bindEnvVars(v *viper.Viper) {
 	_ = v.BindEnv("opencode.username", "OPENCODE_SERVER_USERNAME")
 	_ = v.BindEnv("opencode.password", "OPENCODE_SERVER_PASSWORD")
 	_ = v.BindEnv("opencode.default_model", "OPENCODE_DEFAULT_MODEL")
+	_ = v.BindEnv("opencode.worktree_manager_host", "WORKTREE_MANAGER_HOST")
+	_ = v.BindEnv("opencode.worktree_manager_username", "WORKTREE_MANAGER_USERNAME")
+	_ = v.BindEnv("opencode.worktree_manager_password", "WORKTREE_MANAGER_PASSWORD")
 
 	// Redis
 	_ = v.BindEnv("session.redis.addr", "REDIS_ADDR")

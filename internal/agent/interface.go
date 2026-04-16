@@ -12,7 +12,6 @@
 // References:
 // - OpenCode Server: https://open-code.ai/docs/en/server
 // - OpenCode SDK: https://opencode.ai/docs/sdk
-// - Worktree Plugin: https://github.com/kdcokenny/opencode-worktree
 package agent
 
 import (
@@ -31,14 +30,16 @@ type TaskContext struct {
 	RepoURL       string `json:"repo_url"`
 	RepoOwner     string `json:"repo_owner"`
 	RepoName      string `json:"repo_name"`
-	Branch        string `json:"branch"`
-	DefaultBranch string `json:"default_branch"`
+	Branch        string `json:"branch"`         // Default branch for issues, PR head ref for PR-scoped tasks
+	DefaultBranch string `json:"default_branch"` // Repository default branch for issue-scoped tasks
+	BaseBranch    string `json:"base_branch"`    // PR base branch for PR-scoped tasks
 
 	// Issue/PR information
 	IssueNumber int      `json:"issue_number"`
 	IssueTitle  string   `json:"issue_title"`
 	IssueBody   string   `json:"issue_body"`
 	Labels      []string `json:"labels"`
+	HeadSHA     string   `json:"head_sha,omitempty"` // PR head SHA for PR-scoped tasks
 
 	// Event information
 	EventType   string `json:"event_type"`   // "issue", "issue_comment", "pull_request", "pr_review_comment"

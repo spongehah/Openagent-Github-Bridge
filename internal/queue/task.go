@@ -47,8 +47,8 @@ type Task struct {
 	CommentBody string `json:"comment_body,omitempty"`
 
 	// For PR
-	HeadSHA string `json:"head_sha,omitempty"`
-	IsDraft bool   `json:"is_draft,omitempty"` // Whether the PR is a draft
+	HeadSHA    string `json:"head_sha,omitempty"`
+	IsDraft    bool   `json:"is_draft,omitempty"`    // Whether the PR is a draft
 	BaseBranch string `json:"base_branch,omitempty"` // Target branch for PR
 
 	// For PR review comments
@@ -187,7 +187,7 @@ func GenerateID() string {
 // SessionKeyFromTask generates a session key from a task.
 func SessionKeyFromTask(task *Task) string {
 	taskType := "issue"
-	if task.Type == TaskTypePullRequest || task.Type == TaskTypePRComment {
+	if task.Type == TaskTypePullRequest || task.Type == TaskTypePRComment || task.Type == TaskTypePRReview {
 		taskType = "pr"
 	}
 	return fmt.Sprintf("%s/%s/%s/%d", task.Owner, task.Repo, taskType, task.Number)
