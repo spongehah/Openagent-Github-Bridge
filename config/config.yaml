@@ -32,7 +32,7 @@ opencode:
   # HTTP Basic Auth 密码 (可选，留空则不启用鉴权)
   password: "${OPENCODE_SERVER_PASSWORD:}"
   # 默认模型
-  default_model: "anthropic/claude-sonnet-4-20250514"
+  default_model: "cpa-openai/gpt-5.3-codex"
   # 请求超时
   timeout: "120s"
   # Agent 侧 worktree-manager 地址
@@ -91,8 +91,8 @@ log:
 
 # 触发配置 (通用)
 trigger:
-  # 用于触发 Agent 的前缀 (在评论中 @openagent)
-  prefix: "@openagent"
+  # 用于触发 Agent 的前缀 (在评论中 @ogb-bot)
+  prefix: "@ogb-bot"
   # 是否响应所有 Issue (否则只响应带前缀的)
   respond_all_issues: false
 

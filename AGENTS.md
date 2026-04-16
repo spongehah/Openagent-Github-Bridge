@@ -297,7 +297,7 @@ server:
 
 # 触发配置
 trigger:
-  prefix: "@openagent"
+  prefix: "@ogb-bot"
   respond_all_issues: false
 ```
 

@@ -233,7 +233,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.format", "json")
 
 	// Trigger defaults
-	v.SetDefault("trigger.prefix", "@openagent")
+	v.SetDefault("trigger.prefix", "@ogb-bot")
 	v.SetDefault("trigger.respond_all_issues", false)
 	v.SetDefault("trigger.labels", []string{"ai-fix"})
 
