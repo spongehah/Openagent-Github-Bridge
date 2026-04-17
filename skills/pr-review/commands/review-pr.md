@@ -10,10 +10,12 @@ Run a comprehensive pull request review using multiple specialized subagents, ea
 
 **Review Aspects (optional):** "$ARGUMENTS"
 
+Every terminal tool call that runs `git` in this workflow must use `workdir=$pwd`. Treat `$pwd` as the prepared worktree root for the review.
+
 ## Review Workflow:
 
 1. **Determine Review Scope**
-   - Check git status to identify changed files
+   - Check `git status` with `workdir=$pwd` to identify changed files
    - Parse arguments to see if user requested specific review aspects
    - Default: Run all applicable reviews
 
@@ -28,7 +30,7 @@ Run a comprehensive pull request review using multiple specialized subagents, ea
    - **all** - Run all applicable reviews (default)
 
 3. **Identify Changed Files**
-   - Run `git diff --name-only` to see modified files
+   - Run `git diff --name-only` with `workdir=$pwd` to see modified files
    - Check if PR already exists: `gh pr view`
    - Identify file types and what reviews apply
 
@@ -143,7 +145,7 @@ Run a comprehensive pull request review using multiple specialized subagents, ea
 ## Tips:
 
 - **Run early**: Before creating PR, not after
-- **Focus on changes**: Subagents analyze git diff by default
+- **Focus on changes**: Subagents analyze `git diff` from `workdir=$pwd` by default
 - **Address critical first**: Fix high-priority issues before lower priority
 - **Re-run after fixes**: Verify issues are resolved
 - **Use specific reviews**: Target specific aspects when you know the concern

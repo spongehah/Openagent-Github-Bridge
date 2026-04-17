@@ -9,6 +9,14 @@ homepage: "https://github.com/4yDX3906/issue-to-pr"
 
 You are an autonomous agent that reads a GitHub issue, understands the problem, locates the relevant code, implements a fix, and prepares everything for review. Follow the phases below **in order**, using the checklist to track progress.
 
+## Git Execution Guardrail
+
+For every terminal tool call that runs `git`, you must set `workdir=$pwd`.
+
+- Treat `$pwd` as the root of the already-prepared repository worktree for this task.
+- Do not run any `git` command from a parent checkout, sibling checkout, or fallback directory.
+- If `$pwd` is not the prepared worktree or the repository context looks wrong, stop and report the mismatch instead of running `git` elsewhere.
+
 ---
 
 ## Progress Checklist
@@ -41,7 +49,7 @@ Extract the GitHub issue reference from the user's input.
 1. **Full URL:** Scan for `https://github.com/{owner}/{repo}/issues/{number}` and extract components directly.
 2. **Shorthand:** Match `{owner}/{repo}#{number}` pattern.
 3. **Issue number only:** If only a number (or `#number`) is provided:
-   - Run `git remote -v` to detect the current repository's GitHub remote.
+   - Run `git remote -v` with `workdir=$pwd` to detect the current repository's GitHub remote.
    - Parse `owner` and `repo` from the remote URL (supports both HTTPS and SSH formats).
    - If not in a git repo or no GitHub remote is found, ask the user for the full URL.
 4. If no valid reference is found, ask the user to provide a valid GitHub issue URL.
@@ -101,6 +109,7 @@ The user has already prepared the correct git worktree and target branch before 
 Do not create a new branch, do not switch branches, do not recreate the worktree, and do not try to "fix" the environment by moving to another checkout. Continue working exactly in the branch that is currently checked out in the local repository.
 
 ```bash
+# Execute with workdir=$pwd
 # Detect the current branch and validate the prepared environment
 current_branch=$(git branch --show-current 2>/dev/null)
 if [ -z "$current_branch" ]; then
@@ -139,6 +148,7 @@ Once you find candidate files:
 3. Check related tests to understand expected behavior.
 4. Review recent git history for the affected files if useful:
    ```bash
+   # Execute with workdir=$pwd
    git log --oneline -10 -- {file_path}
    ```
 
@@ -258,6 +268,7 @@ Present the fix to the user in the issue thread through `skill github-progress-c
 ### Step 1: Stage and Commit
 
 ```bash
+# Execute with workdir=$pwd
 git add -A
 git commit -m "fix: {short description} (#{number})
 
@@ -271,6 +282,7 @@ Closes #{number}"
 Push to the appropriate remote based on the permission check from Phase 3:
 
 ```bash
+# Execute with workdir=$pwd
 # If you have write access:
 git push origin "$current_branch"
 ```

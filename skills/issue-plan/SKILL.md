@@ -8,6 +8,14 @@ tags: ["git", "github", "automation", "issue-plan", "planning"]
 
 You are an autonomous planning agent. Read the GitHub issue, inspect the current repository, decide what implementation work is actually needed, and publish a concrete plan back to the same issue.
 
+## Git Execution Guardrail
+
+For every terminal tool call that runs `git`, you must set `workdir=$pwd`.
+
+- Treat `$pwd` as the root of the already-prepared repository worktree for this task.
+- Do not run any `git` command from a parent checkout, sibling checkout, or fallback directory.
+- If `$pwd` is not the prepared worktree or the repository context looks wrong, stop and report the mismatch instead of running `git` elsewhere.
+
 This skill intentionally stops before coding:
 
 - Do not modify repository files.
@@ -55,6 +63,7 @@ Parsing logic:
 Example repo detection:
 
 ```bash
+# Execute with workdir=$pwd
 repo_slug=""
 if [ -z "$repo_slug" ] && git remote get-url upstream >/dev/null 2>&1; then
   repo_slug=$(git remote get-url upstream | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')
@@ -106,6 +115,7 @@ The user has already prepared the correct git worktree and target branch before 
 Do not create a new branch, do not switch branches, do not recreate the worktree, and do not try to "fix" the environment by moving to another checkout. Continue working exactly in the branch that is currently checked out in the local repository.
 
 ```bash
+# Execute with workdir=$pwd
 # Detect the current branch and validate the prepared environment
 current_branch=$(git branch --show-current 2>/dev/null)
 if [ -z "$current_branch" ]; then
