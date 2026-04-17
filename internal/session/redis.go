@@ -81,6 +81,15 @@ func (m *RedisManager) GetOrCreate(key SessionKey) (*Session, bool, error) {
 	return sess, false, nil
 }
 
+// Reset replaces any existing session for the key with a fresh session.
+func (m *RedisManager) Reset(key SessionKey) (*Session, error) {
+	sess := NewSession(key)
+	if err := m.persist(sess); err != nil {
+		return nil, err
+	}
+	return sess, nil
+}
+
 // Get retrieves a session by key.
 func (m *RedisManager) Get(key SessionKey) (*Session, error) {
 	payload, err := m.client.Get(context.Background(), m.redisKey(key)).Result()

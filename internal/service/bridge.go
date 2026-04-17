@@ -52,38 +52,58 @@ func (s *BridgeService) Process(ctx context.Context, task *queue.Task) error {
 		return nil
 	}
 
-	// Get or create session for this issue/PR
+	processedTask := task
 	sessionKey := s.getSessionKey(task)
-	sess, isNew, err := s.sessionManager.GetOrCreate(sessionKey)
-	if err != nil {
-		return fmt.Errorf("failed to get/create session: %w", err)
+	forceFreshSession, sanitizedComment := extractMentionClearInstruction(task.CommentBody, s.triggerConfig.Prefix)
+	if forceFreshSession {
+		processedTask = cloneTaskWithCommentBody(task, sanitizedComment)
+	}
+
+	// Get or create session for this issue/PR
+	var (
+		sess  *session.Session
+		isNew bool
+		err   error
+	)
+	if forceFreshSession {
+		sess, err = s.sessionManager.Reset(sessionKey)
+		if err != nil {
+			return fmt.Errorf("failed to reset session: %w", err)
+		}
+		isNew = true
+		log.Printf("[Bridge] Reset session %s for task %s due to mention -clear", sessionKey.String(), task.ID)
+	} else {
+		sess, isNew, err = s.sessionManager.GetOrCreate(sessionKey)
+		if err != nil {
+			return fmt.Errorf("failed to get/create session: %w", err)
+		}
 	}
 
 	log.Printf("[Bridge] Session %s (new: %v) for task %s", sessionKey.String(), isNew, task.ID)
 
 	// Build prompt for the agent
-	prompt := s.promptBuilder.Build(task, sess, isNew)
+	prompt := s.promptBuilder.Build(processedTask, sess, isNew)
 
 	// Build task context
 	// If session already has an agent session ID, pass it for reuse
 	taskContext := agent.TaskContext{
 		SessionKey:     sessionKey.String(),
 		AgentSessionID: sess.AgentSessionID, // Reuse existing agent session if available
-		RepoURL:        task.RepoURL,
-		RepoOwner:      task.Owner,
-		RepoName:       task.Repo,
-		Branch:         task.Branch,
-		DefaultBranch:  s.getDefaultBranch(task),
-		BaseBranch:     task.BaseBranch,
-		IssueNumber:    task.Number,
-		IssueTitle:     task.Title,
-		IssueBody:      s.getIssueBody(task),
-		Labels:         task.Labels,
-		HeadSHA:        task.HeadSHA,
-		EventType:      string(task.Type),
-		EventAction:    task.Action,
-		CommentBody:    task.CommentBody,
-		Sender:         task.Sender,
+		RepoURL:        processedTask.RepoURL,
+		RepoOwner:      processedTask.Owner,
+		RepoName:       processedTask.Repo,
+		Branch:         processedTask.Branch,
+		DefaultBranch:  s.getDefaultBranch(processedTask),
+		BaseBranch:     processedTask.BaseBranch,
+		IssueNumber:    processedTask.Number,
+		IssueTitle:     processedTask.Title,
+		IssueBody:      s.getIssueBody(processedTask),
+		Labels:         processedTask.Labels,
+		HeadSHA:        processedTask.HeadSHA,
+		EventType:      string(processedTask.Type),
+		EventAction:    processedTask.Action,
+		CommentBody:    processedTask.CommentBody,
+		Sender:         processedTask.Sender,
 		Prompt:         prompt,
 	}
 
@@ -291,6 +311,55 @@ func matchSlashCommand(content string, commands []string) (string, string) {
 	}
 
 	return "", ""
+}
+
+// extractMentionClearInstruction detects "@bot -clear" on the first line and returns the remaining request body.
+func extractMentionClearInstruction(content, prefix string) (bool, string) {
+	trimmed := strings.TrimLeft(content, " \t\r\n")
+	normalizedPrefix := strings.ToLower(strings.TrimSpace(prefix))
+	if trimmed == "" || normalizedPrefix == "" {
+		return false, ""
+	}
+
+	normalizedContent := strings.ToLower(trimmed)
+	if !strings.HasPrefix(normalizedContent, normalizedPrefix) {
+		return false, ""
+	}
+	if len(trimmed) > len(normalizedPrefix) {
+		next := trimmed[len(normalizedPrefix)]
+		if next != ' ' && next != '\t' && next != '\r' && next != '\n' {
+			return false, ""
+		}
+	}
+
+	remainder := trimmed[len(normalizedPrefix):]
+	remainder = strings.TrimLeft(remainder, " \t")
+	if remainder == "" {
+		return false, ""
+	}
+
+	const clearToken = "-clear"
+	normalizedRemainder := strings.ToLower(remainder)
+	if !strings.HasPrefix(normalizedRemainder, clearToken) {
+		return false, ""
+	}
+	if len(remainder) > len(clearToken) {
+		next := remainder[len(clearToken)]
+		if next != ' ' && next != '\t' && next != '\r' && next != '\n' {
+			return false, ""
+		}
+	}
+
+	return true, strings.TrimSpace(remainder[len(clearToken):])
+}
+
+func cloneTaskWithCommentBody(task *queue.Task, commentBody string) *queue.Task {
+	cloned := *task
+	cloned.CommentBody = commentBody
+	if task.CommentBody != "" {
+		cloned.Body = commentBody
+	}
+	return &cloned
 }
 
 // getMatchedTriggerLabel returns the first matched trigger label if any.

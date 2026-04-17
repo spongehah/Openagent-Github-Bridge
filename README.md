@@ -9,6 +9,7 @@ GitHub Webhook 到自管理 AI coding agent 的桥接服务，基于 OpenCode / 
 - **自管理 OpenCode 实例**：Agent 运行在你自己的机器或服务器上，仓库、凭据、运行环境、网络访问策略都由你控制，而不是依赖托管式 Web 工作区或第三方 GitHub App 执行环境。
 - **可切换任意 AI Provider / Model**：底层通过 OpenCode 对接模型，不绑定单一厂商。可以按仓库、任务类型或成本策略自由选择 provider 和 model。
 - **Agent 行为可深度个性化**：你可以自定义 OpenCode 配置、系统提示词、权限策略、技能、工作流和配套服务，而不是受限于固定产品形态。
+- **同 issue/pr 聊天记录继承**：在同一个 issue/pr 中，Agent 的多轮交互会复用同一 Session，保持上下文连续性，而不是每次都从零开始。也可通过 -clear 参数手动重置上下文。
 - **支持随时人工接管**：任务由 Bridge 触发后，仍然可以直接进入 OpenCode Web GUI 接管同一会话和工作目录，继续推进工作，不局限于 GitHub 评论区交互。
 - **不只服务 GitHub 页面内流程**：虽然入口是 GitHub webhook，但 Agent 实际运行在真实仓库工作目录中，可继续做 GitHub 之外的本地调试、脚本执行、文档整理和环境排查。
 - **可通过 VSCode 远程编辑文件**：因为代码就在你自己的机器或远端主机 worktree 里，可以直接用 VSCode Remote 等方式连接并编辑，不需要把修改局限在浏览器对话框或 App 沙箱内。

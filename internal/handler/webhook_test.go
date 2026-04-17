@@ -457,6 +457,120 @@ func TestCreateTaskFromPRDiscussionCommentWithMentionUsesPRContext(t *testing.T)
 	}
 }
 
+func TestCreateTaskFromPRDiscussionCommentWithMentionClearUsesPRContext(t *testing.T) {
+	t.Parallel()
+
+	handler := newWebhookHandlerWithClient(
+		config.GitHubConfig{WebhookSecret: "test-secret"},
+		"@ogb-bot",
+		queue.NewTaskQueue(1),
+		fakePullRequestGetter{
+			getPullRequest: func(ctx context.Context, owner, repo string, number int) (*ghapi.PullRequest, error) {
+				if owner != "openagent" || repo != "github-bridge" || number != 42 {
+					t.Fatalf("unexpected PR lookup: %s/%s#%d", owner, repo, number)
+				}
+
+				return &ghapi.PullRequest{
+					User: &ghapi.User{
+						Type: ghapi.Ptr("User"),
+					},
+					Head: &ghapi.PullRequestBranch{
+						Ref: ghapi.Ptr("feature/latest-head"),
+						SHA: ghapi.Ptr("deadbeef"),
+					},
+					Base: &ghapi.PullRequestBranch{
+						Ref: ghapi.Ptr("main"),
+					},
+					Draft: ghapi.Ptr(false),
+				}, nil
+			},
+		},
+	)
+
+	task, err := handler.createTaskFromEvent(context.Background(), &ghwebhook.WebhookEvent{
+		Type:   "issue_comment",
+		Action: "created",
+		Payload: &ghwebhook.IssueCommentEvent{
+			Action: "created",
+			Comment: struct {
+				ID   int64  `json:"id"`
+				Body string `json:"body"`
+				User struct {
+					Login string `json:"login"`
+				} `json:"user"`
+			}{
+				ID:   123,
+				Body: "@ogb-bot -clear please check this PR again",
+			},
+			Issue: struct {
+				Number      int    `json:"number"`
+				Title       string `json:"title"`
+				Body        string `json:"body"`
+				State       string `json:"state"`
+				PullRequest *struct {
+					URL string `json:"url"`
+				} `json:"pull_request,omitempty"`
+				User struct {
+					Login string `json:"login"`
+				} `json:"user"`
+			}{
+				Number: 42,
+				Title:  "PR title",
+				Body:   "PR body",
+				PullRequest: &struct {
+					URL string `json:"url"`
+				}{
+					URL: "https://api.github.com/repos/openagent/github-bridge/pulls/42",
+				},
+			},
+			Repository: struct {
+				FullName string `json:"full_name"`
+				Owner    struct {
+					Login string `json:"login"`
+				} `json:"owner"`
+				Name          string `json:"name"`
+				DefaultBranch string `json:"default_branch"`
+				CloneURL      string `json:"clone_url"`
+			}{
+				Name:          "github-bridge",
+				DefaultBranch: "main",
+				CloneURL:      "https://github.com/openagent/github-bridge.git",
+				Owner: struct {
+					Login string `json:"login"`
+				}{
+					Login: "openagent",
+				},
+			},
+			Sender: struct {
+				Login string `json:"login"`
+			}{
+				Login: "alice",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("createTaskFromEvent returned error: %v", err)
+	}
+	if task == nil {
+		t.Fatalf("expected task to be created")
+	}
+	if task.Type != queue.TaskTypePRComment {
+		t.Fatalf("expected PR comment task, got %q", task.Type)
+	}
+	if task.CommentBody != "@ogb-bot -clear please check this PR again" {
+		t.Fatalf("expected original comment body to be preserved in queued task, got %q", task.CommentBody)
+	}
+	if task.Branch != "feature/latest-head" {
+		t.Fatalf("expected PR head branch, got %q", task.Branch)
+	}
+	if task.BaseBranch != "main" {
+		t.Fatalf("expected PR base branch, got %q", task.BaseBranch)
+	}
+	if task.HeadSHA != "deadbeef" {
+		t.Fatalf("expected PR head sha, got %q", task.HeadSHA)
+	}
+}
+
 func performWebhookRequest(t *testing.T, eventType string, payload []byte) (*httptest.ResponseRecorder, *queue.TaskQueue) {
 	t.Helper()
 

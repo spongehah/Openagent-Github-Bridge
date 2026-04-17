@@ -166,3 +166,107 @@ func TestRedisManagerRespectsTTL(t *testing.T) {
 		t.Fatalf("expected recreated session to have empty AgentSessionID, got %q", second.AgentSessionID)
 	}
 }
+
+func TestMemoryManagerResetReplacesExistingSession(t *testing.T) {
+	t.Parallel()
+
+	manager := NewMemoryManager(time.Hour)
+	key := NewSessionKey("openagent", "github-bridge", SessionTypeIssue, 99)
+
+	first, isNew, err := manager.GetOrCreate(key)
+	if err != nil {
+		t.Fatalf("GetOrCreate returned error: %v", err)
+	}
+	if !isNew {
+		t.Fatal("expected first GetOrCreate to create a session")
+	}
+
+	first.SetAgentSessionID("session-before-reset")
+	first.RecordDispatch("task-1", "session-before-reset")
+	if err := manager.Update(first); err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+
+	reset, err := manager.Reset(key)
+	if err != nil {
+		t.Fatalf("Reset returned error: %v", err)
+	}
+	if reset.AgentSessionID != "" {
+		t.Fatalf("expected reset session to clear AgentSessionID, got %q", reset.AgentSessionID)
+	}
+	if reset.DispatchCount != 0 {
+		t.Fatalf("expected reset session to clear DispatchCount, got %d", reset.DispatchCount)
+	}
+	if len(reset.DispatchHistory) != 0 {
+		t.Fatalf("expected reset session to clear DispatchHistory, got %d entries", len(reset.DispatchHistory))
+	}
+
+	got, err := manager.Get(key)
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected session after reset, got nil")
+	}
+	if got.AgentSessionID != "" {
+		t.Fatalf("expected persisted reset session to clear AgentSessionID, got %q", got.AgentSessionID)
+	}
+}
+
+func TestRedisManagerResetReplacesExistingSession(t *testing.T) {
+	t.Parallel()
+
+	server := miniredis.RunT(t)
+	manager, err := NewRedisManager(context.Background(), config.RedisConfig{
+		Addr: server.Addr(),
+	}, time.Hour)
+	if err != nil {
+		t.Fatalf("NewRedisManager returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := manager.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	})
+
+	key := NewSessionKey("openagent", "github-bridge", SessionTypeIssue, 100)
+
+	first, isNew, err := manager.GetOrCreate(key)
+	if err != nil {
+		t.Fatalf("GetOrCreate returned error: %v", err)
+	}
+	if !isNew {
+		t.Fatal("expected first GetOrCreate to create a session")
+	}
+
+	first.SetAgentSessionID("session-before-reset")
+	first.RecordDispatch("task-1", "session-before-reset")
+	if err := manager.Update(first); err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+
+	reset, err := manager.Reset(key)
+	if err != nil {
+		t.Fatalf("Reset returned error: %v", err)
+	}
+	if reset.AgentSessionID != "" {
+		t.Fatalf("expected reset session to clear AgentSessionID, got %q", reset.AgentSessionID)
+	}
+	if reset.DispatchCount != 0 {
+		t.Fatalf("expected reset session to clear DispatchCount, got %d", reset.DispatchCount)
+	}
+	if len(reset.DispatchHistory) != 0 {
+		t.Fatalf("expected reset session to clear DispatchHistory, got %d entries", len(reset.DispatchHistory))
+	}
+
+	got, err := manager.Get(key)
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected session after reset, got nil")
+	}
+	if got.AgentSessionID != "" {
+		t.Fatalf("expected persisted reset session to clear AgentSessionID, got %q", got.AgentSessionID)
+	}
+}

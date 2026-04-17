@@ -111,6 +111,9 @@ type Manager interface {
 	// GetOrCreate retrieves an existing session or creates a new one.
 	GetOrCreate(key SessionKey) (*Session, bool, error)
 
+	// Reset replaces any existing session with a fresh one for the same key.
+	Reset(key SessionKey) (*Session, error)
+
 	// Get retrieves a session by key, returns nil if not found.
 	Get(key SessionKey) (*Session, error)
 
@@ -165,6 +168,13 @@ func (m *MemoryManager) GetOrCreate(key SessionKey) (*Session, bool, error) {
 	session := NewSession(key)
 	m.sessions.Store(keyStr, session)
 	return session, true, nil
+}
+
+// Reset replaces any existing session for the key with a fresh session.
+func (m *MemoryManager) Reset(key SessionKey) (*Session, error) {
+	session := NewSession(key)
+	m.sessions.Store(key.String(), session)
+	return session, nil
 }
 
 // Get retrieves a session by key.
