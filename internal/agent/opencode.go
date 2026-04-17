@@ -1,5 +1,5 @@
 // Package agent provides abstractions for AI agent interactions.
-// This file implements the OpenCode adapter for dispatching tasks to the OpenCode server.
+// This file implements the OpenCode adapter using the official Go SDK.
 //
 // References:
 // - OpenCode Server API: https://open-code.ai/docs/en/server
@@ -7,23 +7,22 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
+
+	"github.com/sst/opencode-sdk-go"
+	"github.com/sst/opencode-sdk-go/option"
 
 	"github.com/openagent/github-bridge/internal/config"
 )
 
 const defaultOpenCodeTimeout = 30 * time.Second
 
-// OpenCodeAdapter implements the Agent interface using OpenCode Server HTTP API.
+// OpenCodeAdapter implements the Agent interface using the official OpenCode Go SDK.
 //
 // It dispatches tasks to OpenCode and returns immediately (fire-and-forget).
 // OpenCode is responsible for:
@@ -31,80 +30,49 @@ const defaultOpenCodeTimeout = 30 * time.Second
 // - Creating PRs or posting comments to GitHub
 // - Managing its own GitHub authentication
 //
-// API Reference: https://open-code.ai/docs/en/server#apis
+// API Reference: https://opencode.ai/docs/sdk
 type OpenCodeAdapter struct {
-	baseURL         string
-	username        string // HTTP Basic Auth username (default: "opencode")
-	password        string // HTTP Basic Auth password
-	timeout         time.Duration
-	httpClient      *http.Client
+	client          *opencode.Client
 	model           *OpenCodeModel
 	worktreeManager *WorktreeManagerClient
 }
 
-// OpenCodeModel represents the model payload used by the HTTP API.
+// OpenCodeModel represents the configured model used for SDK requests.
 // Reference: https://opencode.ai/docs/sdk
 type OpenCodeModel struct {
-	ProviderID string `json:"providerID"`
-	ModelID    string `json:"modelID"`
+	ProviderID string
+	ModelID    string
 }
 
-// SessionCreateRequest represents a request to create a new session.
-// API: POST /session?directory=<path>
-// Reference: https://open-code.ai/docs/en/server#sessions
-type SessionCreateRequest struct {
-	Title    string `json:"title,omitempty"`    // Session title
-	ParentID string `json:"parentID,omitempty"` // Optional parent session ID
-}
-
-// SessionResponse represents a session object from OpenCode.
-// Reference: https://open-code.ai/docs/en/server#sessions
-type SessionResponse struct {
-	ID        string `json:"id"`
-	Title     string `json:"title,omitempty"`
-	Directory string `json:"directory,omitempty"`
-	CreatedAt string `json:"createdAt,omitempty"`
-}
-
-// MessagePart represents a request message part.
-// Reference: https://opencode.ai/docs/sdk#messages
-type MessagePart struct {
-	Type string `json:"type"` // "text"
-	Text string `json:"text"`
-}
-
-// MessageRequest represents a request to send a message to a session.
-// API: POST /session/:id/prompt_async
-// Reference: https://open-code.ai/docs/en/server#messages
-type MessageRequest struct {
-	Model *OpenCodeModel `json:"model,omitempty"`
-	Parts []MessagePart  `json:"parts"`
+// openCodeHealthResponse represents the global health response.
+// Reference: https://open-code.ai/docs/en/server#global
+type openCodeHealthResponse struct {
+	Healthy bool   `json:"healthy"`
+	Version string `json:"version"`
 }
 
 // NewOpenCodeAdapter creates a new OpenCode adapter.
 //
 // Authentication:
-// If password is set, HTTP Basic Auth is used.
+// If password is set, HTTP Basic Auth is applied through SDK request options.
 // Reference: https://open-code.ai/docs/en/server#authentication
 func NewOpenCodeAdapter(cfg config.OpenCodeConfig) *OpenCodeAdapter {
-	username := cfg.Username
-	if username == "" {
-		username = "opencode"
-	}
-
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = defaultOpenCodeTimeout
 	}
 
+	clientOptions := []option.RequestOption{
+		option.WithBaseURL(strings.TrimSuffix(cfg.Host, "/")),
+		option.WithHTTPClient(&http.Client{Timeout: timeout}),
+	}
+
+	if authHeader := buildBasicAuthHeader(cfg.Username, cfg.Password, "opencode"); authHeader != "" {
+		clientOptions = append(clientOptions, option.WithHeader("Authorization", authHeader))
+	}
+
 	return &OpenCodeAdapter{
-		baseURL:  strings.TrimSuffix(cfg.Host, "/"),
-		username: username,
-		password: cfg.Password,
-		timeout:  timeout,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		client:          opencode.NewClient(clientOptions...),
 		model:           parseOpenCodeModel(cfg.DefaultModel),
 		worktreeManager: NewWorktreeManagerClient(cfg, timeout),
 	}
@@ -113,9 +81,9 @@ func NewOpenCodeAdapter(cfg config.OpenCodeConfig) *OpenCodeAdapter {
 // DispatchTask sends a task to OpenCode and returns immediately.
 //
 // Flow:
-// 1. Reuse existing session OR create a new isolated session for this issue/PR
+// 1. Reuse an existing session OR create a new isolated session for this issue/PR
 // 2. If new session: call the companion worktree-manager service, then create an OpenCode session in that path
-// 3. Send prompt asynchronously (fire-and-forget)
+// 3. Send a prompt with no reply so dispatch remains fire-and-forget
 func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*DispatchResult, error) {
 	sessionID := task.AgentSessionID
 
@@ -150,21 +118,13 @@ func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*
 // HealthCheck verifies the OpenCode server and companion worktree service are reachable.
 // Reference: https://open-code.ai/docs/en/server#global
 func (a *OpenCodeAdapter) HealthCheck(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.baseURL+"/global/health", nil)
-	if err != nil {
-		return fmt.Errorf("failed to create health check request: %w", err)
-	}
-
-	a.setAuthHeader(req)
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
+	var health openCodeHealthResponse
+	if err := a.client.Get(ctx, "global/health", nil, &health); err != nil {
 		return fmt.Errorf("health check request failed: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health check returned status %d", resp.StatusCode)
+	if !health.Healthy {
+		return fmt.Errorf("health check returned unhealthy response")
 	}
 
 	if a.worktreeManager == nil {
@@ -180,7 +140,7 @@ func (a *OpenCodeAdapter) HealthCheck(ctx context.Context) error {
 
 // createIsolatedSession prepares the worktree through the companion service
 // and then creates the long-lived OpenCode session inside that directory.
-func (a *OpenCodeAdapter) createIsolatedSession(ctx context.Context, task TaskContext) (*SessionResponse, error) {
+func (a *OpenCodeAdapter) createIsolatedSession(ctx context.Context, task TaskContext) (*opencode.Session, error) {
 	if a.worktreeManager == nil || a.worktreeManager.baseURL == "" {
 		return nil, fmt.Errorf("worktree-manager host is not configured")
 	}
@@ -239,105 +199,66 @@ func (a *OpenCodeAdapter) buildPrompt(task TaskContext) string {
 }
 
 // createSession creates a new session in OpenCode with the specified working directory.
-// API: POST /session?directory=<path>
-// Reference: https://open-code.ai/docs/en/server#sessions
-// Note: The working directory is passed as a query parameter, not in the request body.
-func (a *OpenCodeAdapter) createSession(ctx context.Context, title, directory string) (*SessionResponse, error) {
-	reqBody := SessionCreateRequest{
-		Title: title,
-	}
-
-	jsonBody, err := json.Marshal(reqBody)
+// Reference: https://opencode.ai/docs/sdk
+func (a *OpenCodeAdapter) createSession(ctx context.Context, title, directory string) (*opencode.Session, error) {
+	session, err := a.client.Session.New(ctx, opencode.SessionNewParams{
+		Title:     opencode.F(title),
+		Directory: opencode.F(directory),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal session request: %w", err)
+		return nil, fmt.Errorf("create session failed: %w", err)
 	}
 
-	// directory is a query param per OpenCode server API spec
-	params := url.Values{}
-	params.Set("directory", directory)
-	reqURL := fmt.Sprintf("%s/session?%s", a.baseURL, params.Encode())
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	a.setAuthHeader(httpReq)
-
-	resp, err := a.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("create session failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var session SessionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
-		return nil, fmt.Errorf("failed to decode session response: %w", err)
-	}
-
-	return &session, nil
+	return session, nil
 }
 
 // sendPromptAsync sends a prompt to the session asynchronously (fire-and-forget).
-// API: POST /session/:id/prompt_async
-// Reference: https://open-code.ai/docs/en/server#messages
+// The Go SDK does not expose a typed prompt_async helper yet, so we dispatch the
+// documented async server endpoint through the SDK client to retain shared base URL,
+// auth, timeout, and retry behavior.
+// References:
+// - OpenCode SDK: https://opencode.ai/docs/sdk
+// - OpenCode Server: https://open-code.ai/docs/en/server#messages
 func (a *OpenCodeAdapter) sendPromptAsync(ctx context.Context, sessionID, prompt string) error {
-	reqBody := MessageRequest{
-		Model: a.model,
-		Parts: []MessagePart{
-			{
-				Type: "text",
-				Text: prompt,
+	params := opencode.SessionPromptParams{
+		Parts: opencode.F([]opencode.SessionPromptParamsPartUnion{
+			opencode.SessionPromptParamsPart{
+				Type: opencode.F(opencode.SessionPromptParamsPartsTypeText),
+				Text: opencode.F(prompt),
 			},
-		},
+		}),
 	}
 
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal prompt request: %w", err)
+	if a.model != nil {
+		params.Model = opencode.F(opencode.SessionPromptParamsModel{
+			ProviderID: opencode.F(a.model.ProviderID),
+			ModelID:    opencode.F(a.model.ModelID),
+		})
 	}
 
-	url := fmt.Sprintf("%s/session/%s/prompt_async", a.baseURL, sessionID)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %w", err)
+	if err := a.client.Execute(ctx, http.MethodPost, fmt.Sprintf("session/%s/prompt_async", sessionID), params, nil); err != nil {
+		return fmt.Errorf("send prompt failed: %w", err)
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
-	a.setAuthHeader(httpReq)
-
-	resp, err := a.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return nil
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	return fmt.Errorf("send prompt failed with status %d: %s", resp.StatusCode, string(body))
+	return nil
 }
 
-// setAuthHeader sets HTTP Basic Auth header if password is configured.
-// Reference: https://open-code.ai/docs/en/server#authentication
-func (a *OpenCodeAdapter) setAuthHeader(req *http.Request) {
-	if a.password == "" {
-		return
+// buildBasicAuthHeader returns a Basic auth header value when password is configured.
+func buildBasicAuthHeader(username, password, defaultUsername string) string {
+	if password == "" {
+		return ""
 	}
 
-	auth := base64.StdEncoding.EncodeToString([]byte(a.username + ":" + a.password))
-	req.Header.Set("Authorization", "Basic "+auth)
+	if username == "" {
+		username = defaultUsername
+	}
+
+	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	return "Basic " + auth
 }
 
 // parseOpenCodeModel converts config like "anthropic/claude-sonnet-4-20250514"
-// into the object payload expected by the local OpenCode HTTP runtime.
+// into the provider/model pair used by the SDK request payload.
 func parseOpenCodeModel(raw string) *OpenCodeModel {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

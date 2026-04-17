@@ -1,6 +1,55 @@
 package agent
 
-import "testing"
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/sst/opencode-sdk-go"
+	"github.com/sst/opencode-sdk-go/option"
+
+	"github.com/openagent/github-bridge/internal/config"
+)
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func jsonResponse(status int, body any) *http.Response {
+	var payload []byte
+	switch v := body.(type) {
+	case string:
+		payload = []byte(v)
+	default:
+		payload, _ = json.Marshal(v)
+	}
+
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(string(payload))),
+	}
+}
+
+func newTestAdapter(model string, openCodeTransport, worktreeTransport roundTripperFunc) *OpenCodeAdapter {
+	return &OpenCodeAdapter{
+		client: opencode.NewClient(
+			option.WithBaseURL("http://opencode.local"),
+			option.WithHTTPClient(&http.Client{Transport: openCodeTransport}),
+		),
+		model: parseOpenCodeModel(model),
+		worktreeManager: &WorktreeManagerClient{
+			baseURL:    "http://worktree.local",
+			httpClient: &http.Client{Transport: worktreeTransport},
+		},
+	}
+}
 
 func TestBuildWorktreeCreateRequestForIssue(t *testing.T) {
 	t.Parallel()
@@ -56,5 +105,225 @@ func TestBuildWorktreeCreateRequestForPR(t *testing.T) {
 	}
 	if args.HeadSHA != "abc123" {
 		t.Fatalf("expected head sha, got %q", args.HeadSHA)
+	}
+}
+
+func TestOpenCodeAdapterDispatchTaskCreatesSessionAndPrompt(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	worktreeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/worktrees/create-or-reuse" {
+			t.Fatalf("unexpected worktree path: %s", r.URL.Path)
+		}
+
+		var req WorktreeCreateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode worktree request: %v", err)
+		}
+
+		if req.Kind != "issue" {
+			t.Fatalf("expected issue worktree kind, got %q", req.Kind)
+		}
+
+		return jsonResponse(http.StatusOK, WorktreeResult{
+			WorktreePath: "/tmp/worktrees/issue-42",
+		}), nil
+	})
+
+	var promptChecked bool
+	openCodeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/session":
+			if got := r.URL.Query().Get("directory"); got != "/tmp/worktrees/issue-42" {
+				t.Fatalf("expected directory query, got %q", got)
+			}
+
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode session request: %v", err)
+			}
+
+			if got := body["title"]; got != "openagent/github-bridge/issue/42" {
+				t.Fatalf("unexpected session title: %#v", got)
+			}
+
+			return jsonResponse(http.StatusOK, map[string]any{
+				"id":        "session-123",
+				"directory": "/tmp/worktrees/issue-42",
+				"projectID": "project-1",
+				"title":     "openagent/github-bridge/issue/42",
+				"version":   "1.0.0",
+				"time": map[string]any{
+					"created": 1,
+					"updated": 1,
+				},
+			}), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/session/session-123/prompt_async":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode prompt request: %v", err)
+			}
+
+			if _, exists := body["noReply"]; exists {
+				t.Fatalf("did not expect noReply in async prompt payload: %#v", body["noReply"])
+			}
+
+			model, ok := body["model"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected model object, got %#v", body["model"])
+			}
+			if model["providerID"] != "anthropic" || model["modelID"] != "claude-sonnet-4-20250514" {
+				t.Fatalf("unexpected model payload: %#v", model)
+			}
+
+			parts, ok := body["parts"].([]any)
+			if !ok || len(parts) != 1 {
+				t.Fatalf("expected one prompt part, got %#v", body["parts"])
+			}
+
+			part, ok := parts[0].(map[string]any)
+			if !ok {
+				t.Fatalf("expected text part object, got %#v", parts[0])
+			}
+			if part["type"] != "text" {
+				t.Fatalf("expected text part, got %#v", part["type"])
+			}
+			if !strings.Contains(part["text"].(string), "**Repository:** openagent/github-bridge") {
+				t.Fatalf("unexpected prompt text: %#v", part["text"])
+			}
+
+			promptChecked = true
+
+			return &http.Response{
+				StatusCode: http.StatusNoContent,
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		default:
+			t.Fatalf("unexpected OpenCode request: %s %s", r.Method, r.URL.Path)
+			return nil, nil
+		}
+	})
+
+	adapter := newTestAdapter("anthropic/claude-sonnet-4-20250514", openCodeTransport, worktreeTransport)
+
+	result, err := adapter.DispatchTask(ctx, TaskContext{
+		SessionKey:    "openagent/github-bridge/issue/42",
+		RepoURL:       "https://github.com/openagent/github-bridge.git",
+		RepoOwner:     "openagent",
+		RepoName:      "github-bridge",
+		DefaultBranch: "main",
+		IssueNumber:   42,
+		Sender:        "alice",
+		Prompt:        "Fix the bug",
+		EventType:     "issue",
+	})
+	if err != nil {
+		t.Fatalf("DispatchTask returned error: %v", err)
+	}
+
+	if !result.Dispatched {
+		t.Fatalf("expected dispatch success, got %#v", result)
+	}
+	if result.TaskID != "session-123" {
+		t.Fatalf("expected session ID task result, got %q", result.TaskID)
+	}
+	if !promptChecked {
+		t.Fatalf("expected prompt request to be sent")
+	}
+}
+
+func TestOpenCodeAdapterDispatchTaskReusesSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	worktreeTransport := roundTripperFunc(func(w *http.Request) (*http.Response, error) {
+		t.Fatalf("worktree manager should not be called when reusing a session")
+		return nil, nil
+	})
+
+	var promptChecked bool
+	openCodeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/session/session-456/prompt_async" {
+			t.Fatalf("unexpected OpenCode request: %s %s", r.Method, r.URL.Path)
+		}
+
+		promptChecked = true
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Body:       io.NopCloser(strings.NewReader("")),
+		}, nil
+	})
+
+	adapter := newTestAdapter("", openCodeTransport, worktreeTransport)
+
+	result, err := adapter.DispatchTask(ctx, TaskContext{
+		AgentSessionID: "session-456",
+		RepoOwner:      "openagent",
+		RepoName:       "github-bridge",
+		IssueNumber:    42,
+		Sender:         "alice",
+		Prompt:         "Fix the bug",
+	})
+	if err != nil {
+		t.Fatalf("DispatchTask returned error: %v", err)
+	}
+
+	if !result.Dispatched || result.TaskID != "session-456" {
+		t.Fatalf("unexpected dispatch result: %#v", result)
+	}
+	if !promptChecked {
+		t.Fatalf("expected prompt request to be sent")
+	}
+}
+
+func TestOpenCodeAdapterHealthCheckUsesSDKAndAuthHeader(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("sdk-user:secret"))
+
+	worktreeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/health" {
+			t.Fatalf("unexpected worktree health path: %s", r.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader("")),
+		}, nil
+	})
+
+	openCodeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/global/health" {
+			t.Fatalf("unexpected health path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != expectedAuth {
+			t.Fatalf("unexpected auth header: %q", got)
+		}
+		return jsonResponse(http.StatusOK, map[string]any{
+			"healthy": true,
+			"version": "1.0.0",
+		}), nil
+	})
+
+	adapter := NewOpenCodeAdapter(config.OpenCodeConfig{
+		Host:     "http://opencode.local",
+		Username: "sdk-user",
+		Password: "secret",
+	})
+	adapter.client = opencode.NewClient(
+		option.WithBaseURL("http://opencode.local"),
+		option.WithHeader("Authorization", expectedAuth),
+		option.WithHTTPClient(&http.Client{Transport: openCodeTransport}),
+	)
+	adapter.worktreeManager = &WorktreeManagerClient{
+		baseURL:    "http://worktree.local",
+		httpClient: &http.Client{Transport: worktreeTransport},
+	}
+
+	if err := adapter.HealthCheck(ctx); err != nil {
+		t.Fatalf("HealthCheck returned error: %v", err)
 	}
 }
