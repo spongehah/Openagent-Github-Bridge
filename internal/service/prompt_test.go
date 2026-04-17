@@ -58,13 +58,16 @@ func TestPromptBuilderIssuePromptUsesLightweightGitHubCoordination(t *testing.T)
 	if !strings.Contains(prompt, "## Repository Execution Guardrails") {
 		t.Fatalf("expected repository execution guardrails in prompt: %q", prompt)
 	}
-	if !strings.Contains(prompt, "Never switch branches or check out anything") {
-		t.Fatalf("expected condensed checkout prohibition in prompt: %q", prompt)
+	if !strings.Contains(prompt, "The worktree is already prepared for this task.") {
+		t.Fatalf("expected prepared-worktree guidance in prompt: %q", prompt)
 	}
-	if !strings.Contains(prompt, "current worktree local branch `issue-42`") {
+	if !strings.Contains(prompt, "Stay on the current local branch `issue-42`") {
 		t.Fatalf("expected issue worktree branch guidance in prompt: %q", prompt)
 	}
-	if !strings.Contains(prompt, "target remote branch `issue-42` using `HEAD:issue-42`") {
+	if !strings.Contains(prompt, "stop and report the mismatch instead of trying to fix it yourself") {
+		t.Fatalf("expected mismatch-report guidance in prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "push the current `HEAD` directly to `issue-42` using `HEAD:issue-42`") {
 		t.Fatalf("expected issue push-target guidance in prompt: %q", prompt)
 	}
 	if !strings.Contains(prompt, "Write all GitHub-facing user communication in Chinese.") {
@@ -161,10 +164,13 @@ func TestPromptBuilderPRReviewPromptIncludesReviewOutcomeSection(t *testing.T) {
 	if !strings.Contains(prompt, "Review outcome / review link / follow-up") {
 		t.Fatalf("expected PR review outcome guidance in prompt: %q", prompt)
 	}
-	if !strings.Contains(prompt, "current worktree local branch `pr-7`") {
+	if !strings.Contains(prompt, "Stay on the current local branch `pr-7`") {
 		t.Fatalf("expected prepared PR worktree guidance in prompt: %q", prompt)
 	}
-	if !strings.Contains(prompt, "PR's remote branch `feature/test` using `HEAD:feature/test`") {
+	if !strings.Contains(prompt, "Compare it against `openagent/github-bridge/main` by default unless the task says otherwise.") {
+		t.Fatalf("expected PR review baseline guidance in prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "push the current `HEAD` directly to the PR branch `feature/test` using `HEAD:feature/test`") {
 		t.Fatalf("expected PR push-target guidance in prompt: %q", prompt)
 	}
 	if !strings.Contains(prompt, "2. **Then:** call `skill pr-review`") {
@@ -203,8 +209,8 @@ func TestPromptBuilderPlanLabelTriggeredPromptUsesGhIssuePlan(t *testing.T) {
 		Labels:    []string{"ai-plan"},
 	}, sess, true)
 
-	if !strings.Contains(prompt, "2. **Then:** call `skill gh-issue-plan`") {
-		t.Fatalf("expected gh-issue-plan guidance in plan prompt: %q", prompt)
+	if !strings.Contains(prompt, "2. **Then:** call `skill issue-plan`") {
+		t.Fatalf("expected issue-plan guidance in plan prompt: %q", prompt)
 	}
 	if !strings.Contains(prompt, "Do not implement code, modify files, or open a pull request in this run.") {
 		t.Fatalf("expected plan-only restriction in plan prompt: %q", prompt)
@@ -242,7 +248,7 @@ func TestPromptBuilderGoCommentTriggeredPromptUsesIssueToPR(t *testing.T) {
 	if !strings.Contains(prompt, "Expected PR linkage: include `Fixes #6` or `Closes #6` in the PR description.") {
 		t.Fatalf("expected PR linkage guidance in slash prompt: %q", prompt)
 	}
-	if !strings.Contains(prompt, "target remote branch `issue-6` using `HEAD:issue-6`") {
+	if !strings.Contains(prompt, "push the current `HEAD` directly to `issue-6` using `HEAD:issue-6`") {
 		t.Fatalf("expected issue push-target guidance in slash prompt: %q", prompt)
 	}
 	reqIdx := strings.Index(prompt, "## User Instruction")

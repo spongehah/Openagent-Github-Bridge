@@ -17,7 +17,7 @@ type PromptBuilder struct {
 
 const githubProgressCommentSkillName = "github-progress-comment"
 const issueToPRSkillName = "issue-to-pr"
-const issuePlanSkillName = "gh-issue-plan"
+const issuePlanSkillName = "issue-plan"
 const prReviewSkillName = "pr-review"
 
 // NewPromptBuilder creates a new prompt builder.
@@ -331,9 +331,12 @@ func (pb *PromptBuilder) writeExecutionRequirements(sb *strings.Builder) {
 func (pb *PromptBuilder) writeRepositoryExecutionGuardrails(sb *strings.Builder, task *queue.Task) {
 	sb.WriteString("## Repository Execution Guardrails\n\n")
 	if task.Type == queue.TaskTypePullRequest || task.Type == queue.TaskTypePRComment || task.Type == queue.TaskTypePRReview {
-		sb.WriteString(fmt.Sprintf("- Never switch branches or check out anything (including `git checkout`, `git switch`, or `gh pr checkout`); always work on the current worktree local branch `%s`, and when you need to push, push the current `HEAD` directly to the PR's remote branch `%s` using `HEAD:%s`.\n", managedWorktreeBranch(task), task.Branch, task.Branch))
+		sb.WriteString(fmt.Sprintf("- The worktree is already prepared for this task. Stay on the current local branch `%s`; do not run `git checkout`, `git switch`, or `gh pr checkout`.\n", managedWorktreeBranch(task)))
+		sb.WriteString(fmt.Sprintf("- For PR review or PR-thread work, treat the current checkout as the PR head. Compare it against `%s/%s/main` by default unless the task says otherwise.\n", task.Owner, task.Repo))
+		sb.WriteString(fmt.Sprintf("- If you need to push, push the current `HEAD` directly to the PR branch `%s` using `HEAD:%s`.\n", task.Branch, task.Branch))
 	} else {
-		sb.WriteString(fmt.Sprintf("- Never switch branches or check out anything (including `git checkout`, `git switch`, or `gh pr checkout`); always work on the current worktree local branch `%s`, and when you need to push, push the current `HEAD` directly to the target remote branch `%s` using `HEAD:%s`.\n", managedWorktreeBranch(task), managedWorktreeBranch(task), managedWorktreeBranch(task)))
+		sb.WriteString(fmt.Sprintf("- The worktree is already prepared for this task. Stay on the current local branch `%s`; do not run `git checkout`, `git switch`, or `gh pr checkout`.\n", managedWorktreeBranch(task)))
+		sb.WriteString(fmt.Sprintf("- If the checkout looks wrong, stop and report the mismatch instead of trying to fix it yourself. When you need to push, push the current `HEAD` directly to `%s` using `HEAD:%s`.\n", managedWorktreeBranch(task), managedWorktreeBranch(task)))
 	}
 	sb.WriteString("\n---\n\n")
 }
@@ -410,14 +413,14 @@ func (pb *PromptBuilder) getFeatureSkill(task *queue.Task) string {
 		if task.Action == "labeled" && pb.getMatchedPlanLabel(task.Labels) != "" {
 			return issuePlanSkillName
 		}
-			if task.Action == "labeled" && pb.getMatchedLabel(task.Labels) != "" {
+		if task.Action == "labeled" && pb.getMatchedLabel(task.Labels) != "" {
+			return issueToPRSkillName
+		}
+		if task.Type == queue.TaskTypeIssueComment {
+			if command, _ := matchSlashCommand(task.CommentBody, pb.commentCommands); command != "" {
 				return issueToPRSkillName
 			}
-			if task.Type == queue.TaskTypeIssueComment {
-				if command, _ := matchSlashCommand(task.CommentBody, pb.commentCommands); command != "" {
-					return issueToPRSkillName
-				}
-			}
+		}
 		return ""
 	}
 }

@@ -31,26 +31,25 @@ Then load only the analyzer reference files relevant to the current request:
 - `references/type-design-analyzer.md` for type encapsulation, invariants, and model design
 - `references/code-simplifier.md` for post-review simplification while preserving behavior
 
-## Legacy plugin phrasing
+## Stay on the current branch
 
-If the user uses old plugin-style phrasing, translate it into this skill's workflow instead of echoing the plugin syntax back.
+The user has already prepared the correct git worktree and target branch before this conversation starts. Treat the current checkout as the intended working environment.
 
-- `/pr-review-toolkit:review-pr` means a comprehensive review of the current PR or diff
-- Aspect words like `comments`, `tests`, `errors`, `types`, `code`, and `simplify` map directly to the same skill aspects
-- `all` means review every aspect that is relevant to the current change set
-- `parallel` means spawn independent review subagents concurrently
-- Direct references to analyzer names such as `comment-analyzer` or `silent-failure-hunter` mean the user wants that review lens applied
+Do not create a new branch, do not switch branches, do not recreate the worktree, and do not try to "fix" the environment by moving to another checkout. Review the current diff or PR context from the checkout that is already prepared for you.
 
-## Scope selection
+```bash
+# Detect the current branch and validate the prepared environment
+current_branch=$(git branch --show-current 2>/dev/null)
+if [ -z "$current_branch" ]; then
+  echo "Detached HEAD: stop and report that the prepared worktree/branch environment is invalid. Do not check out another branch yourself."
+fi
+```
 
-Prefer the narrowest useful scope.
+Use `current_branch` as the basis for local diff inspection and any optional simplify-mode edits.
 
-1. If the user names a PR number, branch, base/head range, commit range, or file list, use that scope.
-2. Otherwise review the current diff or the most recently changed files.
-3. Default to changed code, not the whole repository.
-4. If scope ambiguity would materially change the outcome, ask one short clarifying question. Otherwise make a reasonable assumption and state it.
+In normal PR review runs, `current_branch` should already represent the prepared PR head. Do not compare it against another ad hoc local branch; use `owner/repo/main` as the default review baseline unless the user explicitly requests another base or narrower scope.
 
-When a PR exists, it is fine to inspect the PR diff. When no PR exists, review local changes as a pre-PR or pre-commit pass.
+If you detect signs that the current checkout is not suitable for the task, treat that as an environment mismatch and stop to report it to the user. Do not perform any branch or worktree switching on your own.
 
 ## Aspect routing
 
@@ -78,6 +77,8 @@ If the user asks for `all`, interpret it as a full review of all aspects that ar
 8. Separate review from implementation:
    - For `code`, `tests`, `comments`, `errors`, and `types`, default to advisory findings only.
    - For `simplify`, edit code only when the user explicitly wants changes applied.
+9. When the review is complete, publish the final result back to the PR thread through `skill github-progress-comment`. Reuse the existing PR-thread progress comment if one already exists, create or update it if needed, write the GitHub-facing content in Chinese, and do not finish the task silently.
+10. Keep the formal PR review separate. The progress comment is the durable status summary in the PR conversation, not a replacement for the formal review decision.
 
 ## Subagent contract
 
@@ -141,6 +142,8 @@ Rules:
 - Keep summaries crisp and actionable
 - Omit empty sections
 - If there are no material findings, say `No material issues found.` and then list residual risks or testing gaps if any
+- After producing the findings, feed the review summary, verification notes, and final outcome into `github-progress-comment` on the PR thread instead of posting a separate wrap-up comment.
+- In that PR-thread progress comment, make the `Summary`, `Verification`, and `Outcome` sections concrete. For example, `Verification` should mention that the review compared the current PR head against `owner/repo/main`, and `Outcome` should capture the review result plus next steps.
 
 ## Simplification mode
 

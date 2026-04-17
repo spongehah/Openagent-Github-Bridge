@@ -101,18 +101,19 @@ cd ~/repos/myorg/myapp
 export OPENCODE_SERVER_PASSWORD="your-secure-password"
 
 # 启动 server 模式
-opencode server --port 4096
+opencode serve --port 4096
+# 如果想要主动接管任务，启动 web 模式，含有 server 模式的全部功能
 ```
 
 **多仓库模式：为每个仓库启动独立的 OpenCode 实例**
 ```bash
 # 终端 1: 启动 repo1 的 OpenCode
 cd ~/repos/owner1/repo1
-opencode server --port 4096
+opencode serve --port 4096
 
 # 终端 2: 启动 repo2 的 OpenCode
 cd ~/repos/owner2/repo2
-opencode server --port 4097
+opencode serve --port 4097
 
 # 可使用 systemd 或 supervisor 管理多个实例
 ```
@@ -121,7 +122,7 @@ opencode server --port 4097
 
 本仓库在 `skills/` 下提供了建议安装到 OpenCode 侧的 skill，例如：
 
-Bridge 下发的 prompt 可能会显式要求 Agent 优先调用 `github-progress-comment`，然后按任务类型继续调用 `issue-to-pr`、`gh-issue-plan` 或 `pr-review` 等其它 skill。
+Bridge 下发的 prompt 可能会显式要求 Agent 优先调用 `github-progress-comment`，然后按任务类型继续调用 `issue-to-pr`、`issue-plan` 或 `pr-review` 等其它 skill。
 
 安装：
 ```bash
@@ -343,7 +344,7 @@ docker run -d \
 1. 用户在 Issue 上添加 `ai-plan` 标签，或在 Issue 评论中以 `/go` 开头发起指令
 2. GitHub 发送 webhook 到 Bridge
 3. Bridge 根据触发方式选择 skill：
-   - `ai-plan` -> `gh-issue-plan`
+   - `ai-plan` -> `issue-plan`
    - `/go` -> `issue-to-pr`
 4. Agent 执行对应流程：
    - `ai-plan` 只产出方案，不编码
