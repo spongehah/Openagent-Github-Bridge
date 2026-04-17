@@ -5,6 +5,8 @@ GitHub Webhook 到 AI Agent 的桥接服务，支持自动修复 Issue 和 PR Re
 ## 功能特性
 
 - **AI-Fix**: Issue 被打上 `ai-fix` 标签时，自动触发 AI 分析并创建修复 PR
+- **AI-Plan**: Issue 被打上 `ai-plan` 标签时，自动触发 AI 输出实现方案
+- **Slash Coding**: Issue 评论以 `/go` 开头时，自动触发 AI 编码与创建 PR
 - **PR Review**: PR 创建或被打上 `ai-review` 标签时，自动进行代码审查
 - **Session 复用**: 同一 Issue/PR 的多次交互复用同一 Agent Session，保持上下文
 - **Git Worktree 隔离**: 每个 Issue/PR 在独立的 git worktree 中工作，互不干扰
@@ -187,6 +189,7 @@ plugins/worktree-manager/README.md
 在仓库中创建触发标签：
 
 - `ai-fix` - 触发自动修复
+- `ai-plan` - 触发方案设计
 - `ai-review` - 触发 PR 审查
 
 ### 3. Bridge 侧准备
@@ -222,6 +225,12 @@ features:
     enabled: true
     labels:
       - "ai-fix"
+    plan_label_trigger_enabled: true
+    plan_labels:
+      - "ai-plan"
+    comment_trigger_enabled: true
+    comment_commands:
+      - "/go"
   pr_review:
     enabled: false                        # PR 创建时自动 review
     label_trigger_enabled: true           # 标签触发 review
@@ -313,6 +322,17 @@ docker run -d \
    - 分析 Issue
    - 在 worktree 中修改代码
    - 创建 PR（包含 `Fixes #{number}`）
+
+### AI-Plan / Slash Coding 流程
+
+1. 用户在 Issue 上添加 `ai-plan` 标签，或在 Issue 评论中以 `/go` 开头发起指令
+2. GitHub 发送 webhook 到 Bridge
+3. Bridge 根据触发方式选择 skill：
+   - `ai-plan` -> `gh-issue-plan`
+   - `/go` -> `gh-pr-create`
+4. Agent 执行对应流程：
+   - `ai-plan` 只产出方案，不编码
+   - `/go` 读取 issue 与补充说明，编码并创建 PR
 
 ### PR Review 流程
 

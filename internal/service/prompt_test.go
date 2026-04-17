@@ -11,7 +11,7 @@ import (
 func TestPromptBuilderIssuePromptUsesLightweightGitHubCoordination(t *testing.T) {
 	t.Parallel()
 
-	builder := NewPromptBuilder([]string{"ai-fix"})
+	builder := NewPromptBuilder([]string{"ai-fix"}, []string{"ai-plan"}, []string{"/go"})
 	sess := session.NewSession(session.NewSessionKey("openagent", "github-bridge", session.SessionTypeIssue, 42))
 
 	prompt := builder.Build(&queue.Task{
@@ -75,7 +75,7 @@ func TestPromptBuilderIssuePromptUsesLightweightGitHubCoordination(t *testing.T)
 func TestPromptBuilderLabelTriggeredPromptUsesShorterContextAndTaskFirstOrder(t *testing.T) {
 	t.Parallel()
 
-	builder := NewPromptBuilder([]string{"ai-fix"})
+	builder := NewPromptBuilder([]string{"ai-fix"}, []string{"ai-plan"}, []string{"/go"})
 	sess := session.NewSession(session.NewSessionKey("openagent", "github-bridge", session.SessionTypeIssue, 3))
 
 	prompt := builder.Build(&queue.Task{
@@ -120,7 +120,7 @@ func TestPromptBuilderLabelTriggeredPromptUsesShorterContextAndTaskFirstOrder(t 
 func TestPromptBuilderPRReviewPromptIncludesReviewOutcomeSection(t *testing.T) {
 	t.Parallel()
 
-	builder := NewPromptBuilder([]string{"ai-fix"})
+	builder := NewPromptBuilder([]string{"ai-fix"}, []string{"ai-plan"}, []string{"/go"})
 
 	prompt := builder.Build(&queue.Task{
 		Type:       queue.TaskTypePRReview,
@@ -145,5 +145,65 @@ func TestPromptBuilderPRReviewPromptIncludesReviewOutcomeSection(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "For PR review tasks, keep status updates in the progress comment and submit the final verdict as a formal GitHub review.") {
 		t.Fatalf("expected formal review exception in prompt: %q", prompt)
+	}
+}
+
+func TestPromptBuilderPlanLabelTriggeredPromptUsesGhIssuePlan(t *testing.T) {
+	t.Parallel()
+
+	builder := NewPromptBuilder([]string{"ai-fix"}, []string{"ai-plan"}, []string{"/go"})
+	sess := session.NewSession(session.NewSessionKey("openagent", "github-bridge", session.SessionTypeIssue, 5))
+
+	prompt := builder.Build(&queue.Task{
+		Type:      queue.TaskTypeIssue,
+		Action:    "labeled",
+		Owner:     "openagent",
+		Repo:      "github-bridge",
+		Number:    5,
+		Branch:    "main",
+		Title:     "Plan only",
+		IssueBody: "Need a design first",
+		Sender:    "alice",
+		Labels:    []string{"ai-plan"},
+	}, sess, true)
+
+	if !strings.Contains(prompt, "2. **Then:** call `skill gh-issue-plan`") {
+		t.Fatalf("expected gh-issue-plan guidance in plan prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Do not implement code, modify files, or open a pull request in this run.") {
+		t.Fatalf("expected plan-only restriction in plan prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Preferred `Outcome` line: `- Plan / open questions / follow-up link`") {
+		t.Fatalf("expected plan outcome guidance in plan prompt: %q", prompt)
+	}
+}
+
+func TestPromptBuilderGoCommentTriggeredPromptUsesGhPRCreate(t *testing.T) {
+	t.Parallel()
+
+	builder := NewPromptBuilder([]string{"ai-fix"}, []string{"ai-plan"}, []string{"/go"})
+	sess := session.NewSession(session.NewSessionKey("openagent", "github-bridge", session.SessionTypeIssue, 6))
+
+	prompt := builder.Build(&queue.Task{
+		Type:        queue.TaskTypeIssueComment,
+		Action:      "created",
+		Owner:       "openagent",
+		Repo:        "github-bridge",
+		Number:      6,
+		Branch:      "main",
+		Title:       "Code from slash command",
+		IssueBody:   "Issue body",
+		CommentBody: "/go keep the response backward compatible",
+		Sender:      "alice",
+	}, sess, true)
+
+	if !strings.Contains(prompt, "2. **Then:** call `skill gh-pr-create`") {
+		t.Fatalf("expected gh-pr-create guidance in slash prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "## User Instruction\n\nkeep the response backward compatible") {
+		t.Fatalf("expected stripped user instruction in slash prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Expected PR linkage: include `Fixes #6` or `Closes #6` in the PR description.") {
+		t.Fatalf("expected PR linkage guidance in slash prompt: %q", prompt)
 	}
 }

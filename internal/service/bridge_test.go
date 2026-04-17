@@ -31,6 +31,13 @@ func TestShouldProcessIssueCommentRequiresTriggerPrefixAtStartOfFirstLine(t *tes
 		triggerConfig: config.TriggerConfig{
 			Prefix: "@ogb-bot",
 		},
+		featuresConfig: config.FeaturesConfig{
+			AIFix: config.AIFixConfig{
+				Enabled:               true,
+				CommentTriggerEnabled: true,
+				CommentCommands:       []string{"/go"},
+			},
+		},
 	}
 
 	if !svc.shouldProcess(&queue.Task{
@@ -55,6 +62,67 @@ func TestShouldProcessIssueCommentRequiresTriggerPrefixAtStartOfFirstLine(t *tes
 		CommentBody: "你好，直接 @ogb-bot 说明即可。",
 	}) {
 		t.Fatal("did not expect incidental mid-line mention to be processed")
+	}
+}
+
+func TestShouldProcessIssueCommentSlashCommandTriggersCoding(t *testing.T) {
+	t.Parallel()
+
+	svc := &BridgeService{
+		featuresConfig: config.FeaturesConfig{
+			AIFix: config.AIFixConfig{
+				Enabled:               true,
+				CommentTriggerEnabled: true,
+				CommentCommands:       []string{"/go"},
+			},
+		},
+	}
+
+	if !svc.shouldProcess(&queue.Task{
+		Type:        queue.TaskTypeIssueComment,
+		Action:      "created",
+		CommentBody: "/go implement the retry flow",
+	}) {
+		t.Fatal("expected /go comment to be processed")
+	}
+
+	if svc.shouldProcess(&queue.Task{
+		Type:        queue.TaskTypeIssueComment,
+		Action:      "created",
+		CommentBody: "/gopher should not match /go",
+	}) {
+		t.Fatal("did not expect partial command prefix to be processed")
+	}
+}
+
+func TestShouldProcessPlanLabelRequiresPlanSubfeatureEnabled(t *testing.T) {
+	t.Parallel()
+
+	svc := &BridgeService{
+		featuresConfig: config.FeaturesConfig{
+			AIFix: config.AIFixConfig{
+				Enabled:                 true,
+				PlanLabelTriggerEnabled: true,
+				PlanLabels:              []string{"ai-plan"},
+			},
+		},
+	}
+
+	if !svc.shouldProcess(&queue.Task{
+		Type:   queue.TaskTypeIssue,
+		Action: "labeled",
+		Labels: []string{"bug", "ai-plan"},
+	}) {
+		t.Fatal("expected ai-plan label to be processed")
+	}
+
+	svc.featuresConfig.AIFix.PlanLabelTriggerEnabled = false
+	if svc.shouldProcess(&queue.Task{
+		Type:   queue.TaskTypeIssue,
+		Action: "labeled",
+		Labels: []string{"bug", "ai-plan"},
+	}) {
+		t.Fatal("did not expect ai-plan label to be processed when subfeature is disabled")
 	}
 }
 
@@ -105,6 +173,49 @@ func TestHasTriggerPrefixAtStartOfFirstLine(t *testing.T) {
 
 			if got := hasTriggerPrefixAtStartOfFirstLine(tc.content, prefix); got != tc.want {
 				t.Fatalf("expected %v, got %v for content %q", tc.want, got, tc.content)
+			}
+		})
+	}
+}
+
+func TestMatchSlashCommand(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		content     string
+		commands    []string
+		wantCommand string
+		wantRest    string
+	}{
+		{
+			name:        "exact command",
+			content:     "/go",
+			commands:    []string{"/go"},
+			wantCommand: "/go",
+		},
+		{
+			name:        "command with trailing instruction",
+			content:     "  /go implement retry\nwith tests",
+			commands:    []string{"/go"},
+			wantCommand: "/go",
+			wantRest:    "implement retry\nwith tests",
+		},
+		{
+			name:     "partial prefix does not match",
+			content:  "/gopher implement retry",
+			commands: []string{"/go"},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotCommand, gotRest := matchSlashCommand(tc.content, tc.commands)
+			if gotCommand != tc.wantCommand || gotRest != tc.wantRest {
+				t.Fatalf("expected (%q, %q), got (%q, %q)", tc.wantCommand, tc.wantRest, gotCommand, gotRest)
 			}
 		})
 	}

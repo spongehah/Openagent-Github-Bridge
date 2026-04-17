@@ -10,17 +10,23 @@ import (
 
 // PromptBuilder constructs prompts for the AI agent.
 type PromptBuilder struct {
-	triggerLabels []string
+	triggerLabels   []string
+	planLabels      []string
+	commentCommands []string
 }
 
 const githubProgressCommentSkillName = "github-progress-comment"
 const issueToPRSkillName = "issue-to-pr"
+const issuePlanSkillName = "gh-issue-plan"
+const issueCommentCodeSkillName = "gh-pr-create"
 const prReviewSkillName = "pr-review"
 
 // NewPromptBuilder creates a new prompt builder.
-func NewPromptBuilder(triggerLabels []string) *PromptBuilder {
+func NewPromptBuilder(triggerLabels, planLabels, commentCommands []string) *PromptBuilder {
 	return &PromptBuilder{
-		triggerLabels: triggerLabels,
+		triggerLabels:   triggerLabels,
+		planLabels:      planLabels,
+		commentCommands: commentCommands,
 	}
 }
 
@@ -31,11 +37,22 @@ func (pb *PromptBuilder) Build(task *queue.Task, sess *session.Session, isNew bo
 		return pb.buildPRReviewPrompt(task)
 	}
 
-	// Check if this is a label-triggered task
 	if task.Action == "labeled" {
+		matchedPlanLabel := pb.getMatchedPlanLabel(task.Labels)
+		if matchedPlanLabel != "" {
+			return pb.buildPlanLabelTriggeredPrompt(task, matchedPlanLabel)
+		}
+
 		matchedLabel := pb.getMatchedLabel(task.Labels)
 		if matchedLabel != "" {
 			return pb.buildLabelTriggeredPrompt(task, matchedLabel)
+		}
+	}
+
+	if task.Type == queue.TaskTypeIssueComment {
+		command, instruction := matchSlashCommand(task.CommentBody, pb.commentCommands)
+		if command != "" {
+			return pb.buildSlashCommandTriggeredPrompt(task, command, instruction)
 		}
 	}
 
@@ -46,6 +63,18 @@ func (pb *PromptBuilder) Build(task *queue.Task, sess *session.Session, isNew bo
 func (pb *PromptBuilder) getMatchedLabel(labels []string) string {
 	for _, taskLabel := range labels {
 		for _, triggerLabel := range pb.triggerLabels {
+			if strings.EqualFold(taskLabel, triggerLabel) {
+				return triggerLabel
+			}
+		}
+	}
+	return ""
+}
+
+// getMatchedPlanLabel returns the first matched planning label.
+func (pb *PromptBuilder) getMatchedPlanLabel(labels []string) string {
+	for _, taskLabel := range labels {
+		for _, triggerLabel := range pb.planLabels {
 			if strings.EqualFold(taskLabel, triggerLabel) {
 				return triggerLabel
 			}
@@ -164,6 +193,61 @@ func (pb *PromptBuilder) buildLabelTriggeredPrompt(task *queue.Task, label strin
 	return sb.String()
 }
 
+func (pb *PromptBuilder) buildPlanLabelTriggeredPrompt(task *queue.Task, label string) string {
+	var sb strings.Builder
+
+	sb.WriteString("# Planning Task Request\n\n")
+	sb.WriteString(fmt.Sprintf("This issue has been labeled with `%s`, indicating that an implementation plan is requested before coding.\n\n", label))
+	sb.WriteString(fmt.Sprintf("## Issue #%d: %s\n\n", task.Number, task.Title))
+	if task.IssueBody != "" {
+		sb.WriteString(task.IssueBody)
+	} else if task.Body != "" {
+		sb.WriteString(task.Body)
+	}
+
+	sb.WriteString("\n\n---\n\n")
+
+	sb.WriteString("## Task Goal\n\n")
+	sb.WriteString("Analyze the issue against the current repository and write back an actionable implementation plan to the GitHub issue.\n")
+	sb.WriteString("Do not implement code, modify files, or open a pull request in this run.\n")
+	sb.WriteString("\n---\n\n")
+	pb.writeSkillCoordination(&sb, task)
+
+	return sb.String()
+}
+
+func (pb *PromptBuilder) buildSlashCommandTriggeredPrompt(task *queue.Task, command, instruction string) string {
+	var sb strings.Builder
+
+	sb.WriteString("# Implementation Task Request\n\n")
+	sb.WriteString(fmt.Sprintf("A user requested issue implementation by commenting `%s`.\n\n", command))
+	sb.WriteString(fmt.Sprintf("## Issue #%d: %s\n\n", task.Number, task.Title))
+	if task.IssueBody != "" {
+		sb.WriteString(task.IssueBody)
+	} else if task.Body != "" {
+		sb.WriteString(task.Body)
+	}
+
+	sb.WriteString("\n\n---\n\n")
+
+	sb.WriteString("## User Instruction\n\n")
+	if instruction != "" {
+		sb.WriteString(instruction)
+	} else {
+		sb.WriteString("No additional instruction was provided after the slash command.")
+	}
+
+	sb.WriteString("\n\n---\n\n")
+
+	sb.WriteString("## Task Goal\n\n")
+	sb.WriteString("Review the issue context and existing discussion, implement the requested change, verify it, and open a pull request linked to this issue.\n")
+	sb.WriteString(fmt.Sprintf("Expected PR linkage: include `Fixes #%d` or `Closes #%d` in the PR description.\n", task.Number, task.Number))
+	sb.WriteString("\n---\n\n")
+	pb.writeSkillCoordination(&sb, task)
+
+	return sb.String()
+}
+
 // buildStandardPrompt creates a standard prompt for comment/mention triggered tasks.
 //
 // 示例（task.Owner="openagent", task.Repo="bridge", task.Number=3, task.Branch="main",
@@ -248,8 +332,10 @@ func (pb *PromptBuilder) writeSkillCoordination(sb *strings.Builder, task *queue
 	outcomeLine := "- Response / branch / follow-up link"
 	if task.Type == queue.TaskTypePRReview {
 		outcomeLine = "- Review outcome / review link / follow-up"
-	} else if pb.getFeatureSkill(task) == issueToPRSkillName {
+	} else if pb.getFeatureSkill(task) == issueToPRSkillName || pb.getFeatureSkill(task) == issueCommentCodeSkillName {
 		outcomeLine = "- PR / branch / follow-up link"
+	} else if pb.getFeatureSkill(task) == issuePlanSkillName {
+		outcomeLine = "- Plan / open questions / follow-up link"
 	}
 	featureSkill := pb.getFeatureSkill(task)
 
@@ -309,8 +395,16 @@ func (pb *PromptBuilder) getFeatureSkill(task *queue.Task) string {
 	case queue.TaskTypePRReview:
 		return prReviewSkillName
 	default:
+		if task.Action == "labeled" && pb.getMatchedPlanLabel(task.Labels) != "" {
+			return issuePlanSkillName
+		}
 		if task.Action == "labeled" && pb.getMatchedLabel(task.Labels) != "" {
 			return issueToPRSkillName
+		}
+		if task.Type == queue.TaskTypeIssueComment {
+			if command, _ := matchSlashCommand(task.CommentBody, pb.commentCommands); command != "" {
+				return issueCommentCodeSkillName
+			}
 		}
 		return ""
 	}

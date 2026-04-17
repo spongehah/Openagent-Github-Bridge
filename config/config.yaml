@@ -99,11 +99,19 @@ trigger:
 # 功能开关配置
 # 原则：只有实际触发动作的事件才需要 enable 配置
 features:
-  # AI-Fix 标签触发功能 (Issue 被打上标签时触发自动修复)
+  # AI-Fix 标签触发功能
   ai_fix:
     enabled: true
     labels:
       - "ai-fix"
+    # Issue 被打上 ai-plan 标签时，只做方案设计
+    plan_label_trigger_enabled: true
+    plan_labels:
+      - "ai-plan"
+    # Issue 评论以 /go 开头时，按既有上下文触发编码
+    comment_trigger_enabled: true
+    comment_commands:
+      - "/go"
 
   # PR 自动 Review 功能
   pr_review:

@@ -72,11 +72,14 @@ type IssueCommentEvent struct {
 		} `json:"user"`
 	} `json:"comment"`
 	Issue struct {
-		Number int    `json:"number"`
-		Title  string `json:"title"`
-		Body   string `json:"body"`
-		State  string `json:"state"`
-		User   struct {
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		Body        string `json:"body"`
+		State       string `json:"state"`
+		PullRequest *struct {
+			URL string `json:"url"`
+		} `json:"pull_request,omitempty"`
+		User struct {
 			Login string `json:"login"`
 		} `json:"user"`
 	} `json:"issue"`
