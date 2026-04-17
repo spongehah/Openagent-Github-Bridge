@@ -25,6 +25,9 @@ func TestPromptBuilderIssuePromptUsesLightweightGitHubCoordination(t *testing.T)
 		Sender:    "alice",
 	}, sess, true)
 
+	if !strings.HasPrefix(prompt, "# Mandatory Execution Requirements\n\n") {
+		t.Fatalf("expected execution requirements at the top of prompt: %q", prompt)
+	}
 	if !strings.Contains(prompt, "## Skill Coordination") {
 		t.Fatalf("expected skill coordination in prompt: %q", prompt)
 	}
@@ -52,8 +55,23 @@ func TestPromptBuilderIssuePromptUsesLightweightGitHubCoordination(t *testing.T)
 	if !strings.Contains(prompt, "## GitHub Interaction Protocol") {
 		t.Fatalf("expected GitHub interaction protocol section in prompt: %q", prompt)
 	}
+	if !strings.Contains(prompt, "## Repository Execution Guardrails") {
+		t.Fatalf("expected repository execution guardrails in prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Never switch branches or check out anything") {
+		t.Fatalf("expected condensed checkout prohibition in prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "current worktree local branch `issue-42`") {
+		t.Fatalf("expected issue worktree branch guidance in prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "target remote branch `issue-42` using `HEAD:issue-42`") {
+		t.Fatalf("expected issue push-target guidance in prompt: %q", prompt)
+	}
 	if !strings.Contains(prompt, "Write all GitHub-facing user communication in Chinese.") {
 		t.Fatalf("expected Chinese GitHub communication guidance in prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "You must post at least one user-visible GitHub comment (`gh issue comment` or `gh pr comment`) before finishing the task; never complete the task silently.") {
+		t.Fatalf("expected explicit minimum GitHub comment requirement in prompt: %q", prompt)
 	}
 	if !strings.Contains(prompt, "The user is interacting with you on GitHub, not in a direct chat session.") {
 		t.Fatalf("expected GitHub-only interaction guidance in prompt: %q", prompt)
@@ -69,6 +87,12 @@ func TestPromptBuilderIssuePromptUsesLightweightGitHubCoordination(t *testing.T)
 	}
 	if !strings.Contains(prompt, "Once a session is upgraded into progress-comment mode, keep reusing that same progress comment for subsequent updates in the session.") {
 		t.Fatalf("expected progress-comment reuse guidance after upgrade in prompt: %q", prompt)
+	}
+	reqIdx := strings.Index(prompt, "## Request")
+	issueIdx := strings.Index(prompt, "## Issue #42: Fix bridge flow")
+	skillIdx := strings.Index(prompt, "## Skill Order")
+	if reqIdx == -1 || issueIdx == -1 || skillIdx == -1 || issueIdx < skillIdx || reqIdx < issueIdx {
+		t.Fatalf("expected issue context and request to be appended after constraints and skill coordination: %q", prompt)
 	}
 }
 
@@ -106,8 +130,8 @@ func TestPromptBuilderLabelTriggeredPromptUsesShorterContextAndTaskFirstOrder(t 
 
 	issueIdx := strings.Index(prompt, "## Issue #3: Trim the prompt")
 	skillIdx := strings.Index(prompt, "## Skill Order")
-	if issueIdx == -1 || skillIdx == -1 || issueIdx > skillIdx {
-		t.Fatalf("expected issue details before skill coordination in label prompt: %q", prompt)
+	if issueIdx == -1 || skillIdx == -1 || issueIdx < skillIdx {
+		t.Fatalf("expected issue details after skill coordination in label prompt: %q", prompt)
 	}
 	if !strings.Contains(prompt, "1. **First:** call `skill github-progress-comment`") {
 		t.Fatalf("expected github-progress-comment as first skill step in label prompt: %q", prompt)
@@ -137,6 +161,12 @@ func TestPromptBuilderPRReviewPromptIncludesReviewOutcomeSection(t *testing.T) {
 	if !strings.Contains(prompt, "Review outcome / review link / follow-up") {
 		t.Fatalf("expected PR review outcome guidance in prompt: %q", prompt)
 	}
+	if !strings.Contains(prompt, "current worktree local branch `pr-7`") {
+		t.Fatalf("expected prepared PR worktree guidance in prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "PR's remote branch `feature/test` using `HEAD:feature/test`") {
+		t.Fatalf("expected PR push-target guidance in prompt: %q", prompt)
+	}
 	if !strings.Contains(prompt, "2. **Then:** call `skill pr-review`") {
 		t.Fatalf("expected pr-review as second skill step in prompt: %q", prompt)
 	}
@@ -145,6 +175,12 @@ func TestPromptBuilderPRReviewPromptIncludesReviewOutcomeSection(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "For PR review tasks, keep status updates in the progress comment and submit the final verdict as a formal GitHub review.") {
 		t.Fatalf("expected formal review exception in prompt: %q", prompt)
+	}
+	ctxIdx := strings.Index(prompt, "## PR Context")
+	goalIdx := strings.Index(prompt, "## Review Goal")
+	skillIdx := strings.Index(prompt, "## Skill Order")
+	if ctxIdx == -1 || goalIdx == -1 || skillIdx == -1 || ctxIdx < goalIdx || goalIdx < skillIdx {
+		t.Fatalf("expected PR context to be appended after top-level constraints and review goal: %q", prompt)
 	}
 }
 
@@ -205,5 +241,14 @@ func TestPromptBuilderGoCommentTriggeredPromptUsesGhPRCreate(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "Expected PR linkage: include `Fixes #6` or `Closes #6` in the PR description.") {
 		t.Fatalf("expected PR linkage guidance in slash prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "target remote branch `issue-6` using `HEAD:issue-6`") {
+		t.Fatalf("expected issue push-target guidance in slash prompt: %q", prompt)
+	}
+	reqIdx := strings.Index(prompt, "## User Instruction")
+	issueIdx := strings.Index(prompt, "## Issue #6: Code from slash command")
+	skillIdx := strings.Index(prompt, "## Skill Order")
+	if reqIdx == -1 || issueIdx == -1 || skillIdx == -1 || issueIdx < skillIdx || reqIdx < issueIdx {
+		t.Fatalf("expected issue context and request to be appended at the end of slash prompt: %q", prompt)
 	}
 }

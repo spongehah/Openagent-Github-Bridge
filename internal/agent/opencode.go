@@ -119,8 +119,7 @@ func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*
 		sessionID = session.ID
 	}
 
-	prompt := a.buildPrompt(task)
-	if err := a.sendPromptAsync(ctx, sessionID, prompt); err != nil {
+	if err := a.sendPromptAsync(ctx, sessionID, task.Prompt); err != nil {
 		return &DispatchResult{
 			Dispatched: false,
 			TaskID:     sessionID,
@@ -225,31 +224,6 @@ func (a *OpenCodeAdapter) ensureWorktree(ctx context.Context, task TaskContext) 
 	}
 
 	return worktreeResult.WorktreePath, nil
-}
-
-// buildPrompt constructs the full prompt with repository and issue context.
-func (a *OpenCodeAdapter) buildPrompt(task TaskContext) string {
-	var sb strings.Builder
-
-	sb.WriteString("# Execution Requirements\n\n")
-	sb.WriteString("- Follow the repository instructions, including `AGENTS.md`.\n")
-	sb.WriteString("- The user is communicating with you through GitHub; keep user-facing feedback on GitHub and let the task prompt define the exact mechanism.\n")
-	sb.WriteString("- Write all GitHub-facing user communication in Chinese.\n")
-	sb.WriteString("- Treat the task prompt below as the source of truth for task workflow, skill order, and GitHub-side coordination.\n")
-	sb.WriteString("- When instructions overlap, prefer the more specific task prompt or called skill, and do not repeat the same GitHub action twice.\n\n")
-	sb.WriteString("---\n\n")
-
-	sb.WriteString("# Dispatch Context\n\n")
-	sb.WriteString(fmt.Sprintf("**Repository:** %s/%s\n", task.RepoOwner, task.RepoName))
-	sb.WriteString(fmt.Sprintf("**Issue/PR Number:** #%d\n", task.IssueNumber))
-	if task.Sender != "" {
-		sb.WriteString(fmt.Sprintf("**Triggered by:** @%s\n", task.Sender))
-	}
-
-	sb.WriteString("\n---\n\n")
-	sb.WriteString(task.Prompt)
-
-	return sb.String()
 }
 
 // createSession creates a new session in OpenCode with the specified working directory.

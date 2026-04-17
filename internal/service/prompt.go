@@ -119,32 +119,15 @@ func (pb *PromptBuilder) getMatchedPlanLabel(labels []string) string {
 func (pb *PromptBuilder) buildPRReviewPrompt(task *queue.Task) string {
 	var sb strings.Builder
 
+	pb.writePromptPrelude(&sb, task)
+
 	sb.WriteString("# Pull Request Review Request\n\n")
 	sb.WriteString("A new pull request has been opened and requires your review.\n\n")
 
-	sb.WriteString("## PR Context\n\n")
-	sb.WriteString(fmt.Sprintf("- **Repository:** %s/%s\n", task.Owner, task.Repo))
-	sb.WriteString(fmt.Sprintf("- **PR Number:** #%d\n", task.Number))
-	sb.WriteString(fmt.Sprintf("- **Branch:** `%s` -> `%s`\n", task.Branch, task.BaseBranch))
-	sb.WriteString(fmt.Sprintf("- **Author:** @%s\n", task.Sender))
-	if task.HeadSHA != "" {
-		sb.WriteString(fmt.Sprintf("- **Head SHA:** `%s`\n", task.HeadSHA))
-	}
-
-	sb.WriteString("\n---\n\n")
-	pb.writeSkillCoordination(&sb, task)
-
-	sb.WriteString(fmt.Sprintf("## PR Title: %s\n\n", task.Title))
-	if task.Body != "" {
-		sb.WriteString("### Description\n\n")
-		sb.WriteString(task.Body)
-		sb.WriteString("\n\n")
-	}
-
-	sb.WriteString("---\n\n")
-
 	sb.WriteString("## Review Goal\n\n")
 	sb.WriteString("Produce a formal GitHub review for this PR. Focus on correctness, regressions, security concerns, edge cases, and testing gaps. Keep feedback actionable and file-specific when possible.\n")
+	sb.WriteString("\n---\n\n")
+	pb.writePRContext(&sb, task)
 
 	return sb.String()
 }
@@ -173,22 +156,15 @@ func (pb *PromptBuilder) buildPRReviewPrompt(task *queue.Task) string {
 func (pb *PromptBuilder) buildLabelTriggeredPrompt(task *queue.Task, label string) string {
 	var sb strings.Builder
 
+	pb.writePromptPrelude(&sb, task)
+
 	sb.WriteString("# Automated Task Request\n\n")
 	sb.WriteString(fmt.Sprintf("This issue has been labeled with `%s`, indicating an automated fix is requested.\n\n", label))
-	sb.WriteString(fmt.Sprintf("## Issue #%d: %s\n\n", task.Number, task.Title))
-	if task.IssueBody != "" {
-		sb.WriteString(task.IssueBody)
-	} else if task.Body != "" {
-		sb.WriteString(task.Body)
-	}
-
-	sb.WriteString("\n\n---\n\n")
-
 	sb.WriteString("## Task Goal\n\n")
 	sb.WriteString("Analyze the issue, implement the necessary fix, verify the change, and open a pull request linked to this issue.\n\n")
 	sb.WriteString(fmt.Sprintf("Expected PR linkage: include `Fixes #%d` or `Closes #%d` in the PR description.\n", task.Number, task.Number))
 	sb.WriteString("\n---\n\n")
-	pb.writeSkillCoordination(&sb, task)
+	pb.writeIssueContext(&sb, task)
 
 	return sb.String()
 }
@@ -196,22 +172,15 @@ func (pb *PromptBuilder) buildLabelTriggeredPrompt(task *queue.Task, label strin
 func (pb *PromptBuilder) buildPlanLabelTriggeredPrompt(task *queue.Task, label string) string {
 	var sb strings.Builder
 
+	pb.writePromptPrelude(&sb, task)
+
 	sb.WriteString("# Planning Task Request\n\n")
 	sb.WriteString(fmt.Sprintf("This issue has been labeled with `%s`, indicating that an implementation plan is requested before coding.\n\n", label))
-	sb.WriteString(fmt.Sprintf("## Issue #%d: %s\n\n", task.Number, task.Title))
-	if task.IssueBody != "" {
-		sb.WriteString(task.IssueBody)
-	} else if task.Body != "" {
-		sb.WriteString(task.Body)
-	}
-
-	sb.WriteString("\n\n---\n\n")
-
 	sb.WriteString("## Task Goal\n\n")
 	sb.WriteString("Analyze the issue against the current repository and write back an actionable implementation plan to the GitHub issue.\n")
 	sb.WriteString("Do not implement code, modify files, or open a pull request in this run.\n")
 	sb.WriteString("\n---\n\n")
-	pb.writeSkillCoordination(&sb, task)
+	pb.writeIssueContext(&sb, task)
 
 	return sb.String()
 }
@@ -219,31 +188,16 @@ func (pb *PromptBuilder) buildPlanLabelTriggeredPrompt(task *queue.Task, label s
 func (pb *PromptBuilder) buildSlashCommandTriggeredPrompt(task *queue.Task, command, instruction string) string {
 	var sb strings.Builder
 
+	pb.writePromptPrelude(&sb, task)
+
 	sb.WriteString("# Implementation Task Request\n\n")
 	sb.WriteString(fmt.Sprintf("A user requested issue implementation by commenting `%s`.\n\n", command))
-	sb.WriteString(fmt.Sprintf("## Issue #%d: %s\n\n", task.Number, task.Title))
-	if task.IssueBody != "" {
-		sb.WriteString(task.IssueBody)
-	} else if task.Body != "" {
-		sb.WriteString(task.Body)
-	}
-
-	sb.WriteString("\n\n---\n\n")
-
-	sb.WriteString("## User Instruction\n\n")
-	if instruction != "" {
-		sb.WriteString(instruction)
-	} else {
-		sb.WriteString("No additional instruction was provided after the slash command.")
-	}
-
-	sb.WriteString("\n\n---\n\n")
-
 	sb.WriteString("## Task Goal\n\n")
 	sb.WriteString("Review the issue context and existing discussion, implement the requested change, verify it, and open a pull request linked to this issue.\n")
 	sb.WriteString(fmt.Sprintf("Expected PR linkage: include `Fixes #%d` or `Closes #%d` in the PR description.\n", task.Number, task.Number))
 	sb.WriteString("\n---\n\n")
-	pb.writeSkillCoordination(&sb, task)
+	pb.writeIssueContext(&sb, task)
+	pb.writeRequestSection(&sb, "## User Instruction", instruction, "No additional instruction was provided after the slash command.")
 
 	return sb.String()
 }
@@ -281,39 +235,26 @@ func (pb *PromptBuilder) buildSlashCommandTriggeredPrompt(task *queue.Task, comm
 func (pb *PromptBuilder) buildStandardPrompt(task *queue.Task, sess *session.Session, isNew bool) string {
 	var sb strings.Builder
 
+	pb.writePromptPrelude(&sb, task)
+
 	sb.WriteString("# GitHub Task\n\n")
-	sb.WriteString(fmt.Sprintf("- **Repository:** %s/%s\n", task.Owner, task.Repo))
-	sb.WriteString(fmt.Sprintf("- **Branch:** %s\n", task.Branch))
-
-	if task.Type == queue.TaskTypePullRequest || task.Type == queue.TaskTypePRComment {
-		sb.WriteString(fmt.Sprintf("- **Pull Request:** #%d\n", task.Number))
-	} else {
-		sb.WriteString(fmt.Sprintf("- **Issue:** #%d\n", task.Number))
-	}
-
-	sb.WriteString(fmt.Sprintf("- **Triggered by:** @%s\n", task.Sender))
-
-	if len(task.Labels) > 0 {
-		sb.WriteString(fmt.Sprintf("- **Labels:** %s\n", strings.Join(task.Labels, ", ")))
-	}
-
+	sb.WriteString("Handle the GitHub request using the current repository context and session history.\n")
 	sb.WriteString("\n---\n\n")
-	pb.writeSkillCoordination(&sb, task)
 
 	// Add issue/PR details for new sessions
-	if isNew && task.IssueBody != "" {
-		sb.WriteString(fmt.Sprintf("## %s\n\n", task.Title))
-		sb.WriteString(task.IssueBody)
-		sb.WriteString("\n\n---\n\n")
+	if isNew {
+		if task.Type == queue.TaskTypePullRequest || task.Type == queue.TaskTypePRComment {
+			pb.writePRContext(&sb, task)
+		} else if task.IssueBody != "" || task.Body != "" || task.Title != "" {
+			pb.writeIssueContext(&sb, task)
+		}
 	}
 
 	// Add the current request
 	if task.CommentBody != "" {
-		sb.WriteString("## Request\n\n")
-		sb.WriteString(task.CommentBody)
+		pb.writeRequestSection(&sb, "## Request", task.CommentBody, "")
 	} else if isNew {
-		sb.WriteString("## Request\n\n")
-		sb.WriteString("Please analyze this issue and take appropriate action.\n")
+		pb.writeRequestSection(&sb, "## Request", "Please analyze this issue and take appropriate action.\n", "")
 	}
 
 	// Add session history summary if continuing a conversation
@@ -324,6 +265,78 @@ func (pb *PromptBuilder) buildStandardPrompt(task *queue.Task, sess *session.Ses
 	}
 
 	return sb.String()
+}
+
+func (pb *PromptBuilder) writePRContext(sb *strings.Builder, task *queue.Task) {
+	sb.WriteString("## PR Context\n\n")
+	sb.WriteString(fmt.Sprintf("- **Repository:** %s/%s\n", task.Owner, task.Repo))
+	sb.WriteString(fmt.Sprintf("- **PR Number:** #%d\n", task.Number))
+	sb.WriteString(fmt.Sprintf("- **Branch:** `%s` -> `%s`\n", task.Branch, task.BaseBranch))
+	sb.WriteString(fmt.Sprintf("- **Author:** @%s\n", task.Sender))
+	if task.HeadSHA != "" {
+		sb.WriteString(fmt.Sprintf("- **Head SHA:** `%s`\n", task.HeadSHA))
+	}
+	if len(task.Labels) > 0 {
+		sb.WriteString(fmt.Sprintf("- **Labels:** %s\n", strings.Join(task.Labels, ", ")))
+	}
+	sb.WriteString("\n\n")
+	if task.Title != "" {
+		sb.WriteString(fmt.Sprintf("## PR Title: %s\n\n", task.Title))
+	}
+	if task.Body != "" {
+		sb.WriteString("### Description\n\n")
+		sb.WriteString(task.Body)
+		sb.WriteString("\n\n")
+	}
+	sb.WriteString("---\n\n")
+}
+
+func (pb *PromptBuilder) writeIssueContext(sb *strings.Builder, task *queue.Task) {
+	sb.WriteString(fmt.Sprintf("## Issue #%d: %s\n\n", task.Number, task.Title))
+	if task.IssueBody != "" {
+		sb.WriteString(task.IssueBody)
+	} else if task.Body != "" {
+		sb.WriteString(task.Body)
+	}
+	sb.WriteString("\n\n---\n\n")
+}
+
+func (pb *PromptBuilder) writeRequestSection(sb *strings.Builder, heading, content, fallback string) {
+	sb.WriteString(heading)
+	sb.WriteString("\n\n")
+	if content != "" {
+		sb.WriteString(content)
+	} else if fallback != "" {
+		sb.WriteString(fallback)
+	}
+	sb.WriteString("\n\n---\n\n")
+}
+
+func (pb *PromptBuilder) writePromptPrelude(sb *strings.Builder, task *queue.Task) {
+	pb.writeExecutionRequirements(sb)
+	pb.writeRepositoryExecutionGuardrails(sb, task)
+	pb.writeSkillCoordination(sb, task)
+}
+
+func (pb *PromptBuilder) writeExecutionRequirements(sb *strings.Builder) {
+	sb.WriteString("# Mandatory Execution Requirements\n\n")
+	sb.WriteString("- Follow the repository instructions, including `AGENTS.md`.\n")
+	sb.WriteString("- The user is communicating with you through GitHub; keep user-facing feedback on GitHub and let the task prompt define the exact mechanism.\n")
+	sb.WriteString("- You must post at least one user-visible GitHub comment (`gh issue comment` or `gh pr comment`) before finishing the task; never complete the task silently.\n")
+	sb.WriteString("- Write all GitHub-facing user communication in Chinese.\n")
+	sb.WriteString("- Treat the task prompt below as the source of truth for task workflow, skill order, and GitHub-side coordination.\n")
+	sb.WriteString("- When instructions overlap, prefer the more specific task prompt or called skill, and do not repeat the same GitHub action twice.\n\n")
+	sb.WriteString("---\n\n")
+}
+
+func (pb *PromptBuilder) writeRepositoryExecutionGuardrails(sb *strings.Builder, task *queue.Task) {
+	sb.WriteString("## Repository Execution Guardrails\n\n")
+	if task.Type == queue.TaskTypePullRequest || task.Type == queue.TaskTypePRComment || task.Type == queue.TaskTypePRReview {
+		sb.WriteString(fmt.Sprintf("- Never switch branches or check out anything (including `git checkout`, `git switch`, or `gh pr checkout`); always work on the current worktree local branch `%s`, and when you need to push, push the current `HEAD` directly to the PR's remote branch `%s` using `HEAD:%s`.\n", managedWorktreeBranch(task), task.Branch, task.Branch))
+	} else {
+		sb.WriteString(fmt.Sprintf("- Never switch branches or check out anything (including `git checkout`, `git switch`, or `gh pr checkout`); always work on the current worktree local branch `%s`, and when you need to push, push the current `HEAD` directly to the target remote branch `%s` using `HEAD:%s`.\n", managedWorktreeBranch(task), managedWorktreeBranch(task), managedWorktreeBranch(task)))
+	}
+	sb.WriteString("\n---\n\n")
 }
 
 func (pb *PromptBuilder) writeSkillCoordination(sb *strings.Builder, task *queue.Task) {
@@ -408,4 +421,12 @@ func (pb *PromptBuilder) getFeatureSkill(task *queue.Task) string {
 		}
 		return ""
 	}
+}
+
+func managedWorktreeBranch(task *queue.Task) string {
+	if task.Type == queue.TaskTypePullRequest || task.Type == queue.TaskTypePRComment || task.Type == queue.TaskTypePRReview {
+		return fmt.Sprintf("pr-%d", task.Number)
+	}
+
+	return fmt.Sprintf("issue-%d", task.Number)
 }

@@ -104,7 +104,7 @@ opencode server --port 4097
 # 可使用 systemd 或 supervisor 管理多个实例
 ```
 
-#### 1.3.1 可选安装的 OpenCode Skills
+#### 1.3.1 可选安装的 OpenCode Skills 与 OpenCode 配置
 
 本仓库在 `skills/` 下提供了建议安装到 OpenCode 侧的 skill，例如：
 
@@ -114,6 +114,8 @@ Bridge 下发的 prompt 可能会显式要求 Agent 优先调用 `github-progres
 ```bash
 cd /path/to/openagent-github-bridge
 cp -r skills/* ~/.agents/skills/
+
+cp opencode.json /path/to/repo
 ```
 
 #### 1.4 启动必需的 worktree-manager companion service
@@ -344,9 +346,10 @@ docker run -d \
 4. Bridge 调用 OpenCode：
    - 新 Session：创建正式 session，并绑定到返回的 `worktreePath`
    - 已有 Session：复用原 session，但 worktree 已先刷新到最新 PR head
+   - Agent 必须直接在该 worktree 中工作，不再执行 `git checkout` / `git switch` / `gh pr checkout`
    - 发送 review prompt
 5. OpenCode 独立工作：
-   - 检出 PR 代码
+   - 直接使用已准备好的 PR worktree
    - 进行代码审查
    - 提交 review comments
 
