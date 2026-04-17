@@ -1,7 +1,7 @@
 ---
 name: issue-to-pr
 description: "issue-to-pr — Automatically fix GitHub issues end-to-end: reads the issue, analyzes repository code, implements a fix, and submits a pull request. Use when the user provides a GitHub issue URL, mentions fixing a GitHub issue, or uses the /fix-issue command. Supports URLs in the format https://github.com/{owner}/{repo}/issues/{number}."
-version: "1.3.0"
+version: "1.3.1"
 author: "4yDX3906"
 tags: ["git", "github", "automation", "issue-fix", "pull-request"]
 homepage: "https://github.com/4yDX3906/issue-to-pr"
@@ -23,8 +23,20 @@ Use this checklist to track your progress through the workflow:
 - [ ] Phase 4: Analyze the Issue
 - [ ] Phase 5: Implement the Fix
 - [ ] Phase 6: Verify the Fix
-- [ ] Phase 7: Present Changes & Get Confirmation
-- [ ] Phase 8: Submit Pull Request (User-Approved)
+- [ ] Phase 7: Present Changes (confirmation optional in automation)
+- [ ] Phase 8: Submit Pull Request
+
+---
+
+## Automation Mode Override
+
+When this skill is invoked by repository automation (for example, an `ai-fix` label workflow) and the task prompt explicitly requires creating a PR, treat that task prompt as the source of truth:
+
+- Do **not** block on an extra user confirmation step.
+- Continue directly from verification to PR creation.
+- Keep user-facing updates in the single progress comment managed by `github-progress-comment`.
+
+Use the manual confirmation flow only when the task prompt does not already require direct PR creation.
 
 ---
 
@@ -310,7 +322,7 @@ Fix any lint issues introduced by your changes.
 
 ---
 
-## Phase 7: Present Changes & Get Confirmation
+## Phase 7: Present Changes
 
 Present the fix to the user and wait for explicit approval before proceeding.
 
@@ -336,19 +348,21 @@ git diff
 
 Highlight the key modifications and explain their impact.
 
-### 7.3 Wait for User Confirmation
+### 7.3 Optional User Confirmation
 
-Ask the user:
+Ask the user only when the task is interactive and no higher-priority instruction requires immediate PR creation:
 > Would you like me to submit these changes as a Pull Request? If anything needs adjustment, let me know.
 
 - If the user **approves**, proceed to Phase 8.
 - If the user **requests changes**, revise the fix (return to Phase 5) and re-present.
 
+If the task prompt explicitly requires PR creation (automation mode), skip this step and proceed directly to Phase 8.
+
 ---
 
-## Phase 8: Submit Pull Request (User-Approved)
+## Phase 8: Submit Pull Request
 
-Only execute this phase after the user has approved the changes in Phase 7.
+Execute this phase after verification is complete. In interactive mode, wait for approval from Phase 7. In automation mode, continue immediately.
 
 ### Step 1: Stage and Commit
 
