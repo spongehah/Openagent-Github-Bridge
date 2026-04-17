@@ -137,7 +137,7 @@ func (s *BridgeService) shouldProcess(task *queue.Task) bool {
 		content = task.CommentBody
 	}
 
-	return strings.Contains(strings.ToLower(content), strings.ToLower(s.triggerConfig.Prefix))
+	return hasTriggerPrefixAtStartOfFirstLine(content, s.triggerConfig.Prefix)
 }
 
 // shouldProcessPRReview determines if a PR should be auto-reviewed.
@@ -212,6 +212,20 @@ func (s *BridgeService) isLabelTriggered(task *queue.Task) bool {
 		}
 	}
 	return false
+}
+
+func hasTriggerPrefixAtStartOfFirstLine(content, prefix string) bool {
+	if prefix == "" {
+		return false
+	}
+
+	normalizedPrefix := strings.ToLower(strings.TrimSpace(prefix))
+	firstLine := content
+	if idx := strings.Index(firstLine, "\n"); idx >= 0 {
+		firstLine = firstLine[:idx]
+	}
+
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(firstLine)), normalizedPrefix)
 }
 
 // getMatchedTriggerLabel returns the first matched trigger label if any.

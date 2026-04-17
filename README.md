@@ -106,7 +106,7 @@ opencode server --port 4097
 
 本仓库在 `skills/` 下提供了建议安装到 OpenCode 侧的 skill，例如：
 
-Bridge 下发的 prompt 会显式要求 Agent 优先调用 `github-progress-comment`，然后按任务类型继续调用 `issue-to-pr` 或 `pr-review` 等其它 skill。
+Bridge 下发的 prompt 可能会显式要求 Agent 优先调用 `github-progress-comment`，然后按任务类型继续调用 `issue-to-pr` 或 `pr-review` 等其它 skill。
 
 安装：
 ```bash

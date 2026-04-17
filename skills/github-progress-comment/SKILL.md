@@ -1,11 +1,13 @@
 ---
 name: github-progress-comment
-description: Maintain exactly one mutable GitHub progress comment for issue or pull request work. Use this skill early whenever an agent is working from a GitHub thread and the user should see progress, blockers, or a final wrap-up in GitHub comments, even if the user did not explicitly ask for progress updates. Create the comment immediately, then keep updating that same comment with summary, verification, and outcome instead of posting separate wrap-up comments.
+description: Maintain exactly one mutable GitHub progress comment for substantial issue or pull request work. Use this skill when the task is long-running enough that the user benefits from visible progress, blockers, or a final wrap-up in GitHub comments. For trivial replies such as greetings, quick clarifications, or short answers, do not create a temporary progress comment.
 ---
 
 # github-progress-comment
 
 Use this skill when work is happening for a GitHub issue or pull request and the GitHub thread should show visible progress while the task is running.
+
+Do not treat this as mandatory for every GitHub mention. If the task is a quick reply, greeting, clarification, or another lightweight interaction that can be answered immediately in-thread, skip this skill and post the direct response instead.
 
 This skill is the default transport for GitHub comment updates. It owns the lifecycle of one mutable progress comment. Other skills may decide what work to do, but they should feed content into this comment instead of creating extra progress or wrap-up comments.
 
@@ -25,16 +27,34 @@ This skill is not the global protocol owner. If the repository prompt defines a 
 - Do not turn this skill into the final PR review workflow. For review tasks, use this skill for status updates and submit the final review separately.
 - Prefer the main agent to create and update the GitHub comment. Subagents can prepare content, but they should not independently post or edit GitHub comments unless the main workflow explicitly delegates that responsibility.
 - If the repository prompt gives a specific marker, required sections, or wording, follow that prompt instead of the generic examples below.
+- If the repository prompt says ordinary mentions should reply directly unless the work becomes substantial, follow that gate and do not create a temporary comment for lightweight interactions.
+
+## Decision Gate
+
+Create or update a progress comment only when at least one of these is true:
+
+- The task will require substantial code reading, editing, testing, or review.
+- The work is expected to take enough time that an early GitHub status update is useful.
+- The task-specific workflow explicitly says this skill owns progress reporting for the task.
+- You need a single mutable place to collect `Summary`, `Verification`, and `Outcome` while the work is ongoing.
+
+Skip this skill when all of these are true:
+
+- The user just needs a quick answer or acknowledgement.
+- The response can be posted immediately without a progress placeholder.
+- No long-running implementation, investigation, or review is about to happen.
 
 ## Workflow
 
 1. Determine the target `owner/repo` and issue or PR number.
 2. Read the task prompt for any required marker or required sections.
 3. Build a marker that uniquely identifies this progress comment.
-4. Before substantial work, find any existing progress comment you already own for that marker.
-5. If none exists, create one with status `in_progress`.
-6. When the task finishes or becomes blocked, update that same comment to `completed` or `blocked`.
-7. Keep the final content concise, factual, and tied to real work performed.
+4. Decide whether the task passes the decision gate above.
+5. If it does not, stop here and let the main workflow reply directly in GitHub without a temporary progress comment.
+6. Before substantial work, find any existing progress comment you already own for that marker.
+7. If none exists, create one with status `in_progress`.
+8. When the task finishes or becomes blocked, update that same comment to `completed` or `blocked`.
+9. Keep the final content concise, factual, and tied to real work performed.
 
 ## Comment Contract
 
@@ -61,6 +81,7 @@ Guidance:
 - `Verification` should mention real checks only. Do not invent tests or success.
 - `Outcome` should point the user to the next concrete GitHub artifact or blocker.
 - For the initial comment, it is fine to omit `Summary`, `Verification`, and `Outcome` and instead say they will be filled in later.
+- Do not create this initial comment for lightweight interactions that should receive a direct reply instead.
 
 ## Preferred Command Pattern
 
@@ -211,3 +232,4 @@ Blocked comment:
 - When the task prompt says GitHub comments are the primary user communication channel, use this skill as the default vehicle for progress, completion, and blocker updates unless a formal PR review is explicitly required.
 - If you also need to submit a formal PR review, this skill only manages the progress comment; submit the formal review separately.
 - If the task is resumed later, find the existing marked comment first and continue updating it rather than creating a fresh one.
+- Typical skip examples: `hello`, a brief clarification question, a short status acknowledgement, or any reply that can be completed in one direct GitHub comment without waiting.

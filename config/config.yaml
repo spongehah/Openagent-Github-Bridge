@@ -91,7 +91,7 @@ log:
 
 # 触发配置 (通用)
 trigger:
-  # 用于触发 Agent 的前缀 (在评论中 @ogb-bot)
+  # 用于触发 Agent 的前缀；必须出现在评论第一行开头，避免普通文本或后续行里顺带提到时误触发
   prefix: "@ogb-bot"
   # 是否响应所有 Issue (否则只响应带前缀的)
   respond_all_issues: false

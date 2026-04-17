@@ -245,26 +245,36 @@ func (pb *PromptBuilder) buildStandardPrompt(task *queue.Task, sess *session.Ses
 func (pb *PromptBuilder) writeSkillCoordination(sb *strings.Builder, task *queue.Task) {
 	repoSlug := fmt.Sprintf("%s/%s", task.Owner, task.Repo)
 	marker := fmt.Sprintf("<!-- openagent:progress-comment %s#%d -->", repoSlug, task.Number)
-	outcomeLine := "- PR / branch / follow-up link"
+	outcomeLine := "- Response / branch / follow-up link"
 	if task.Type == queue.TaskTypePRReview {
 		outcomeLine = "- Review outcome / review link / follow-up"
+	} else if pb.getFeatureSkill(task) == issueToPRSkillName {
+		outcomeLine = "- PR / branch / follow-up link"
 	}
 	featureSkill := pb.getFeatureSkill(task)
 
 	sb.WriteString("## Skill Order\n\n")
-	sb.WriteString(fmt.Sprintf("1. **First:** call `skill %s` before substantial work so the temporary GitHub comment is created early.\n", githubProgressCommentSkillName))
 	if featureSkill != "" {
+		sb.WriteString(fmt.Sprintf("1. **First:** call `skill %s` before substantial work so the temporary GitHub comment is created early.\n", githubProgressCommentSkillName))
 		sb.WriteString(fmt.Sprintf("2. **Then:** call `skill %s` for the main workflow of this task.\n", featureSkill))
 		sb.WriteString("3. **Fallback:** if a listed skill is unavailable, continue with the explicit instructions in this prompt.\n\n")
 	} else {
-		sb.WriteString("2. **Fallback:** if the skill is unavailable, continue with the explicit instructions in this prompt.\n\n")
+		sb.WriteString("1. **Default:** for simple mentions, greetings, or brief clarifications, reply directly in the GitHub thread without creating a temporary progress comment.\n")
+		sb.WriteString(fmt.Sprintf("2. **Only if needed:** if this turns into substantial or long-running work, call `skill %s` and keep updating that single progress comment.\n", githubProgressCommentSkillName))
+		sb.WriteString("   Upgrade to progress-comment mode immediately if you need substantial code reading, code changes, tests, more than one brief reply, or multi-step status updates.\n")
+		sb.WriteString("3. **Fallback:** if the skill is unavailable, continue with the explicit instructions in this prompt.\n\n")
 	}
 
 	sb.WriteString("## GitHub Interaction Protocol\n\n")
 	sb.WriteString("- The user is interacting with you on GitHub, not in a direct chat session.\n")
 	sb.WriteString("- Send every user-facing progress update, final summary, and blocker notice back through GitHub.\n")
 	sb.WriteString("- Write all GitHub-facing user communication in Chinese.\n")
-	sb.WriteString(fmt.Sprintf("- Prefer updating the single progress comment managed by `skill %s` instead of posting separate wrap-up comments.\n", githubProgressCommentSkillName))
+	if featureSkill != "" {
+		sb.WriteString(fmt.Sprintf("- Prefer updating the single progress comment managed by `skill %s` instead of posting separate wrap-up comments.\n", githubProgressCommentSkillName))
+	} else {
+		sb.WriteString(fmt.Sprintf("- For quick replies, respond directly in the thread. Only use `skill %s` when the work is substantial enough to need incremental status updates.\n", githubProgressCommentSkillName))
+		sb.WriteString("- Upgrade to progress-comment mode as soon as the task requires substantial code reading, code changes, tests, more than one brief reply, or multi-step status updates.\n")
+	}
 	if task.Type == queue.TaskTypePRReview {
 		sb.WriteString("- For PR review tasks, keep status updates in the progress comment and submit the final verdict as a formal GitHub review.\n\n")
 	} else {
@@ -272,25 +282,36 @@ func (pb *PromptBuilder) writeSkillCoordination(sb *strings.Builder, task *queue
 	}
 
 	sb.WriteString("## Skill Coordination\n\n")
-	sb.WriteString(fmt.Sprintf("- `skill %s` owns the progress comment lifecycle for `%s#%d`.\n", githubProgressCommentSkillName, repoSlug, task.Number))
 	if featureSkill != "" {
+		sb.WriteString(fmt.Sprintf("- `skill %s` owns the progress comment lifecycle for `%s#%d`.\n", githubProgressCommentSkillName, repoSlug, task.Number))
 		sb.WriteString(fmt.Sprintf("- `skill %s` owns the main task workflow after the progress comment exists.\n", featureSkill))
+		sb.WriteString("- Do not create an extra progress or wrap-up comment later in the workflow.\n")
+		sb.WriteString("- If later instructions mention summary, verification, or outcome, treat them as content for the existing progress comment unless they clearly refer to a PR body or formal review.\n")
+		sb.WriteString(fmt.Sprintf("- Progress comment marker: `%s`\n", marker))
+		sb.WriteString("- Progress comment completion fields: `Status`, `Summary`, `Verification`, `Outcome`\n")
+		sb.WriteString(fmt.Sprintf("- Preferred `Outcome` line: `%s`\n\n", outcomeLine))
+		sb.WriteString("---\n\n")
+		return
 	}
-	sb.WriteString("- Do not create an extra progress or wrap-up comment later in the workflow.\n")
-	sb.WriteString("- If later instructions mention summary, verification, or outcome, treat them as content for the existing progress comment unless they clearly refer to a PR body or formal review.\n")
+	sb.WriteString(fmt.Sprintf("- Use `skill %s` only when the work becomes long-running enough to justify a mutable progress comment.\n", githubProgressCommentSkillName))
+	sb.WriteString("- Do not create a temporary progress comment for simple acknowledgements, greetings, or brief Q&A.\n")
+	sb.WriteString("- Upgrade immediately when the work requires substantial code reading, code changes, tests, more than one brief reply, or multi-step status updates.\n")
+	sb.WriteString("- If you decide a progress comment is necessary, reuse one marked with the marker below and keep summary, verification, and outcome in that single comment.\n")
+	sb.WriteString("- Once a session is upgraded into progress-comment mode, keep reusing that same progress comment for subsequent updates in the session.\n")
 	sb.WriteString(fmt.Sprintf("- Progress comment marker: `%s`\n", marker))
 	sb.WriteString("- Progress comment completion fields: `Status`, `Summary`, `Verification`, `Outcome`\n")
-	sb.WriteString(fmt.Sprintf("- Preferred `Outcome` line: `%s`\n\n", outcomeLine))
+	sb.WriteString(fmt.Sprintf("- Preferred `Outcome` line when a progress comment is used: `%s`\n\n", outcomeLine))
 	sb.WriteString("---\n\n")
 }
 
 func (pb *PromptBuilder) getFeatureSkill(task *queue.Task) string {
 	switch task.Type {
-	case queue.TaskTypeIssue, queue.TaskTypeIssueComment:
-		return issueToPRSkillName
 	case queue.TaskTypePRReview:
 		return prReviewSkillName
 	default:
+		if task.Action == "labeled" && pb.getMatchedLabel(task.Labels) != "" {
+			return issueToPRSkillName
+		}
 		return ""
 	}
 }

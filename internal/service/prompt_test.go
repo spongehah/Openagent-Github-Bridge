@@ -8,7 +8,7 @@ import (
 	"github.com/openagent/github-bridge/internal/session"
 )
 
-func TestPromptBuilderIssuePromptIncludesSkillCoordination(t *testing.T) {
+func TestPromptBuilderIssuePromptUsesLightweightGitHubCoordination(t *testing.T) {
 	t.Parallel()
 
 	builder := NewPromptBuilder([]string{"ai-fix"})
@@ -31,17 +31,23 @@ func TestPromptBuilderIssuePromptIncludesSkillCoordination(t *testing.T) {
 	if !strings.Contains(prompt, githubProgressCommentSkillName) {
 		t.Fatalf("expected progress comment skill in prompt: %q", prompt)
 	}
-	if !strings.Contains(prompt, "1. **First:** call `skill github-progress-comment`") {
-		t.Fatalf("expected github-progress-comment as first skill step in prompt: %q", prompt)
+	if !strings.Contains(prompt, "1. **Default:** for simple mentions, greetings, or brief clarifications, reply directly in the GitHub thread without creating a temporary progress comment.") {
+		t.Fatalf("expected direct-reply guidance for ordinary issue prompts: %q", prompt)
 	}
-	if !strings.Contains(prompt, "2. **Then:** call `skill issue-to-pr`") {
-		t.Fatalf("expected issue-to-pr as second skill step in prompt: %q", prompt)
+	if !strings.Contains(prompt, "2. **Only if needed:** if this turns into substantial or long-running work, call `skill github-progress-comment`") {
+		t.Fatalf("expected conditional progress-comment guidance for ordinary issue prompts: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Upgrade to progress-comment mode immediately if you need substantial code reading, code changes, tests, more than one brief reply, or multi-step status updates.") {
+		t.Fatalf("expected explicit upgrade conditions for ordinary issue prompts: %q", prompt)
+	}
+	if strings.Contains(prompt, "call `skill issue-to-pr`") {
+		t.Fatalf("did not expect issue-to-pr guidance for ordinary issue prompts: %q", prompt)
 	}
 	if !strings.Contains(prompt, "<!-- openagent:progress-comment openagent/github-bridge#42 -->") {
 		t.Fatalf("expected progress comment marker in prompt: %q", prompt)
 	}
-	if !strings.Contains(prompt, "Do not create an extra progress or wrap-up comment later in the workflow.") {
-		t.Fatalf("expected duplicate-comment guardrail in prompt: %q", prompt)
+	if !strings.Contains(prompt, "Do not create a temporary progress comment for simple acknowledgements, greetings, or brief Q&A.") {
+		t.Fatalf("expected simple-reply guardrail in prompt: %q", prompt)
 	}
 	if !strings.Contains(prompt, "## GitHub Interaction Protocol") {
 		t.Fatalf("expected GitHub interaction protocol section in prompt: %q", prompt)
@@ -55,8 +61,14 @@ func TestPromptBuilderIssuePromptIncludesSkillCoordination(t *testing.T) {
 	if !strings.Contains(prompt, "Send every user-facing progress update, final summary, and blocker notice back through GitHub.") {
 		t.Fatalf("expected GitHub feedback channel guidance in prompt: %q", prompt)
 	}
-	if !strings.Contains(prompt, "Prefer updating the single progress comment managed by `skill github-progress-comment` instead of posting separate wrap-up comments.") {
-		t.Fatalf("expected progress comment preference in prompt: %q", prompt)
+	if !strings.Contains(prompt, "For quick replies, respond directly in the thread. Only use `skill github-progress-comment` when the work is substantial enough to need incremental status updates.") {
+		t.Fatalf("expected lightweight GitHub interaction guidance in prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Upgrade to progress-comment mode as soon as the task requires substantial code reading, code changes, tests, more than one brief reply, or multi-step status updates.") {
+		t.Fatalf("expected explicit progress-mode upgrade guidance in prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Once a session is upgraded into progress-comment mode, keep reusing that same progress comment for subsequent updates in the session.") {
+		t.Fatalf("expected progress-comment reuse guidance after upgrade in prompt: %q", prompt)
 	}
 }
 
@@ -96,6 +108,12 @@ func TestPromptBuilderLabelTriggeredPromptUsesShorterContextAndTaskFirstOrder(t 
 	skillIdx := strings.Index(prompt, "## Skill Order")
 	if issueIdx == -1 || skillIdx == -1 || issueIdx > skillIdx {
 		t.Fatalf("expected issue details before skill coordination in label prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "1. **First:** call `skill github-progress-comment`") {
+		t.Fatalf("expected github-progress-comment as first skill step in label prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "2. **Then:** call `skill issue-to-pr`") {
+		t.Fatalf("expected issue-to-pr as second skill step in label prompt: %q", prompt)
 	}
 }
 
