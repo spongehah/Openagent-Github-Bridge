@@ -76,3 +76,44 @@ func TestAddIssueWorktreeFallsBackToSyncedLocalBranch(t *testing.T) {
 		t.Fatalf("unexpected git calls:\nwant:\n%s\n\ngot:\n%s", strings.Join(want, "\n"), strings.Join(calls, "\n"))
 	}
 }
+
+func TestRefreshPRWorktreeResetsToLatestHead(t *testing.T) {
+	t.Parallel()
+
+	var calls []string
+	run := func(_ context.Context, cwd string, args ...string) (string, error) {
+		call := fmt.Sprintf("%s :: %s", cwd, strings.Join(args, " "))
+		calls = append(calls, call)
+
+		switch call {
+		case "/repo :: rev-parse --verify deadbeef^{commit}":
+			return "deadbeef\n", nil
+		case "/tmp/worktree :: reset --hard":
+			return "", nil
+		case "/tmp/worktree :: clean -fdx":
+			return "", nil
+		case "/tmp/worktree :: checkout -B pr-42 deadbeef":
+			return "", nil
+		case "/tmp/worktree :: reset --hard deadbeef":
+			return "", nil
+		default:
+			return "", fmt.Errorf("unexpected git call: %s", call)
+		}
+	}
+
+	if err := refreshPRWorktree(context.Background(), "/repo", "/tmp/worktree", "pr-42", "deadbeef", run); err != nil {
+		t.Fatalf("refreshPRWorktree returned error: %v", err)
+	}
+
+	want := []string{
+		"/repo :: rev-parse --verify deadbeef^{commit}",
+		"/tmp/worktree :: reset --hard",
+		"/tmp/worktree :: clean -fdx",
+		"/tmp/worktree :: checkout -B pr-42 deadbeef",
+		"/tmp/worktree :: reset --hard deadbeef",
+		"/tmp/worktree :: clean -fdx",
+	}
+	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("unexpected git calls:\nwant:\n%s\n\ngot:\n%s", strings.Join(want, "\n"), strings.Join(calls, "\n"))
+	}
+}

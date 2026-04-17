@@ -86,9 +86,30 @@ func NewOpenCodeAdapter(cfg config.OpenCodeConfig) *OpenCodeAdapter {
 // 3. Send a prompt with no reply so dispatch remains fire-and-forget
 func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*DispatchResult, error) {
 	sessionID := task.AgentSessionID
+	worktreePath := ""
+
+	if sessionID != "" && isPRScopedTask(task) {
+		if _, err := a.ensureWorktree(ctx, task); err != nil {
+			return &DispatchResult{
+				Dispatched: false,
+				TaskID:     sessionID,
+				Error:      fmt.Sprintf("failed to refresh PR worktree: %v", err),
+			}, err
+		}
+		fmt.Printf("[OpenCode] Reusing existing session: %s\n", sessionID)
+	}
 
 	if sessionID == "" {
-		session, err := a.createIsolatedSession(ctx, task)
+		var err error
+		worktreePath, err = a.ensureWorktree(ctx, task)
+		if err != nil {
+			return &DispatchResult{
+				Dispatched: false,
+				Error:      fmt.Sprintf("failed to prepare isolated worktree: %v", err),
+			}, err
+		}
+
+		session, err := a.createSession(ctx, task.SessionKey, worktreePath)
 		if err != nil {
 			return &DispatchResult{
 				Dispatched: false,
@@ -96,8 +117,6 @@ func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*
 			}, err
 		}
 		sessionID = session.ID
-	} else {
-		fmt.Printf("[OpenCode] Reusing existing session: %s\n", sessionID)
 	}
 
 	prompt := a.buildPrompt(task)
@@ -174,29 +193,38 @@ func (a *OpenCodeAdapter) openCodeHealthStatus(ctx context.Context) ServiceHealt
 // createIsolatedSession prepares the worktree through the companion service
 // and then creates the long-lived OpenCode session inside that directory.
 func (a *OpenCodeAdapter) createIsolatedSession(ctx context.Context, task TaskContext) (*opencode.Session, error) {
-	if a.worktreeManager == nil || a.worktreeManager.baseURL == "" {
-		return nil, fmt.Errorf("worktree-manager host is not configured")
-	}
-
-	worktreeReq, err := buildWorktreeCreateRequest(task)
+	worktreePath, err := a.ensureWorktree(ctx, task)
 	if err != nil {
 		return nil, err
 	}
 
-	worktreeResult, err := a.worktreeManager.CreateOrReuse(ctx, worktreeReq)
+	finalSession, err := a.createSession(ctx, task.SessionKey, worktreePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create or reuse worktree: %w", err)
-	}
-	if strings.TrimSpace(worktreeResult.WorktreePath) == "" {
-		return nil, fmt.Errorf("worktree-manager returned an empty worktreePath")
-	}
-
-	finalSession, err := a.createSession(ctx, task.SessionKey, worktreeResult.WorktreePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create final session in worktree %s: %w", worktreeResult.WorktreePath, err)
+		return nil, fmt.Errorf("failed to create final session in worktree %s: %w", worktreePath, err)
 	}
 
 	return finalSession, nil
+}
+
+func (a *OpenCodeAdapter) ensureWorktree(ctx context.Context, task TaskContext) (string, error) {
+	if a.worktreeManager == nil || a.worktreeManager.baseURL == "" {
+		return "", fmt.Errorf("worktree-manager host is not configured")
+	}
+
+	worktreeReq, err := buildWorktreeCreateRequest(task)
+	if err != nil {
+		return "", err
+	}
+
+	worktreeResult, err := a.worktreeManager.CreateOrReuse(ctx, worktreeReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to create or reuse worktree: %w", err)
+	}
+	if strings.TrimSpace(worktreeResult.WorktreePath) == "" {
+		return "", fmt.Errorf("worktree-manager returned an empty worktreePath")
+	}
+
+	return worktreeResult.WorktreePath, nil
 }
 
 // buildPrompt constructs the full prompt with repository and issue context.

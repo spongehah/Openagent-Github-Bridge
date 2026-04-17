@@ -87,7 +87,7 @@ func main() {
 	router.Use(gin.Logger())
 
 	// Register handlers
-	webhookHandler := handler.NewWebhookHandler(cfg.GitHub, taskQueue)
+	webhookHandler := handler.NewWebhookHandler(cfg.GitHub, cfg.Trigger, taskQueue)
 	healthHandler := handler.NewHealthHandler(openCodeAgent, "1.0.0")
 	router.POST("/webhook", webhookHandler.HandleWebhook)
 	router.GET("/health", healthHandler.HandleHealth)

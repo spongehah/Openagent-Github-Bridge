@@ -63,6 +63,14 @@ func TestShouldProcessIssueCommentRequiresTriggerPrefixAtStartOfFirstLine(t *tes
 	}) {
 		t.Fatal("did not expect incidental mid-line mention to be processed")
 	}
+
+	if !svc.shouldProcess(&queue.Task{
+		Type:        queue.TaskTypePRComment,
+		Action:      "created",
+		CommentBody: "@ogb-bot review this update",
+	}) {
+		t.Fatal("expected PR comment starting with trigger prefix to be processed")
+	}
 }
 
 func TestShouldProcessIssueCommentSlashCommandTriggersCoding(t *testing.T) {

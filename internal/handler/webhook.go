@@ -2,27 +2,42 @@
 package handler
 
 import (
+	"context"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	ghapi "github.com/google/go-github/v70/github"
 	"github.com/openagent/github-bridge/internal/config"
 	ghwebhook "github.com/openagent/github-bridge/internal/github"
 	"github.com/openagent/github-bridge/internal/queue"
 )
 
+type pullRequestGetter interface {
+	GetPullRequest(ctx context.Context, owner, repo string, number int) (*ghapi.PullRequest, error)
+}
+
 // WebhookHandler handles incoming GitHub webhook events.
 type WebhookHandler struct {
-	githubConfig config.GitHubConfig
-	taskQueue    *queue.TaskQueue
+	githubConfig  config.GitHubConfig
+	triggerPrefix string
+	taskQueue     *queue.TaskQueue
+	githubClient  pullRequestGetter
 }
 
 // NewWebhookHandler creates a new webhook handler.
-func NewWebhookHandler(cfg config.GitHubConfig, tq *queue.TaskQueue) *WebhookHandler {
+func NewWebhookHandler(ghCfg config.GitHubConfig, triggerCfg config.TriggerConfig, tq *queue.TaskQueue) *WebhookHandler {
+	return newWebhookHandlerWithClient(ghCfg, triggerCfg.Prefix, tq, ghwebhook.NewClient(ghCfg))
+}
+
+func newWebhookHandlerWithClient(ghCfg config.GitHubConfig, triggerPrefix string, tq *queue.TaskQueue, ghClient pullRequestGetter) *WebhookHandler {
 	return &WebhookHandler{
-		githubConfig: cfg,
-		taskQueue:    tq,
+		githubConfig:  ghCfg,
+		triggerPrefix: triggerPrefix,
+		taskQueue:     tq,
+		githubClient:  ghClient,
 	}
 }
 
@@ -74,7 +89,7 @@ func (h *WebhookHandler) HandleWebhook(c *gin.Context) {
 	}
 
 	// Create task from event
-	task, err := h.createTaskFromEvent(event)
+	task, err := h.createTaskFromEvent(c.Request.Context(), event)
 	if err != nil {
 		log.Printf("Failed to create task from event: %v", err)
 		c.JSON(http.StatusOK, gin.H{"message": "event not actionable"})
@@ -101,7 +116,7 @@ func (h *WebhookHandler) HandleWebhook(c *gin.Context) {
 }
 
 // createTaskFromEvent converts a webhook event into a processable task.
-func (h *WebhookHandler) createTaskFromEvent(event *ghwebhook.WebhookEvent) (*queue.Task, error) {
+func (h *WebhookHandler) createTaskFromEvent(ctx context.Context, event *ghwebhook.WebhookEvent) (*queue.Task, error) {
 	switch payload := event.Payload.(type) {
 	case *ghwebhook.IssueEvent:
 		// Handle opened and labeled actions
@@ -135,10 +150,12 @@ func (h *WebhookHandler) createTaskFromEvent(event *ghwebhook.WebhookEvent) (*qu
 		if event.Action != "created" {
 			return nil, nil
 		}
-		// GitHub issue_comment covers both issues and PR conversations.
-		// Ignore PR discussion comments so slash commands like /go stay issue-scoped.
 		if payload.Issue.PullRequest != nil {
-			return nil, nil
+			if !hasTriggerPrefixAtStartOfFirstLine(payload.Comment.Body, h.triggerPrefix) {
+				return nil, nil
+			}
+
+			return h.buildPRDiscussionCommentTask(ctx, event, payload)
 		}
 		return &queue.Task{
 			ID:          generateTaskID(),
@@ -209,6 +226,9 @@ func (h *WebhookHandler) createTaskFromEvent(event *ghwebhook.WebhookEvent) (*qu
 			Body:        payload.Comment.Body,
 			Sender:      payload.Sender.Login,
 			RepoURL:     payload.Repository.CloneURL,
+			Branch:      payload.PullRequest.Head.Ref,
+			BaseBranch:  payload.PullRequest.Base.Ref,
+			HeadSHA:     payload.PullRequest.Head.SHA,
 			CommentID:   payload.Comment.ID,
 			CommentBody: payload.Comment.Body,
 			FilePath:    payload.Comment.Path,
@@ -217,6 +237,53 @@ func (h *WebhookHandler) createTaskFromEvent(event *ghwebhook.WebhookEvent) (*qu
 	default:
 		return nil, nil
 	}
+}
+
+func (h *WebhookHandler) buildPRDiscussionCommentTask(ctx context.Context, event *ghwebhook.WebhookEvent, payload *ghwebhook.IssueCommentEvent) (*queue.Task, error) {
+	if h.githubClient == nil {
+		return nil, nil
+	}
+
+	pr, err := h.githubClient.GetPullRequest(ctx, payload.Repository.Owner.Login, payload.Repository.Name, payload.Issue.Number)
+	if err != nil {
+		return nil, err
+	}
+
+	return &queue.Task{
+		ID:          generateTaskID(),
+		Type:        queue.TaskTypePRComment,
+		EventType:   event.Type,
+		Action:      event.Action,
+		Owner:       payload.Repository.Owner.Login,
+		Repo:        payload.Repository.Name,
+		Number:      payload.Issue.Number,
+		Title:       payload.Issue.Title,
+		Body:        payload.Comment.Body,
+		IssueBody:   payload.Issue.Body,
+		Sender:      payload.Sender.Login,
+		SenderType:  pr.GetUser().GetType(),
+		RepoURL:     payload.Repository.CloneURL,
+		Branch:      pr.GetHead().GetRef(),
+		BaseBranch:  pr.GetBase().GetRef(),
+		HeadSHA:     pr.GetHead().GetSHA(),
+		IsDraft:     pr.GetDraft(),
+		CommentID:   payload.Comment.ID,
+		CommentBody: payload.Comment.Body,
+	}, nil
+}
+
+func hasTriggerPrefixAtStartOfFirstLine(content, prefix string) bool {
+	if prefix == "" {
+		return false
+	}
+
+	normalizedPrefix := strings.ToLower(strings.TrimSpace(prefix))
+	firstLine := content
+	if idx := strings.Index(firstLine, "\n"); idx >= 0 {
+		firstLine = firstLine[:idx]
+	}
+
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(firstLine)), normalizedPrefix)
 }
 
 // generateTaskID creates a unique task identifier.

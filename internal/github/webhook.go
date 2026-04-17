@@ -152,6 +152,13 @@ type PullRequestReviewCommentEvent struct {
 	PullRequest struct {
 		Number int    `json:"number"`
 		Title  string `json:"title"`
+		Head   struct {
+			Ref string `json:"ref"`
+			SHA string `json:"sha"`
+		} `json:"head"`
+		Base struct {
+			Ref string `json:"ref"`
+		} `json:"base"`
 	} `json:"pull_request"`
 	Repository struct {
 		FullName string `json:"full_name"`

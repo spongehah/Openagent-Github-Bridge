@@ -191,6 +191,11 @@ func (s *service) createOrReuse(ctx context.Context, req worktreeRequest) (*work
 		}
 	} else {
 		if existing.ByPath != nil {
+			if req.Kind == "pr_review" && headSHA != "" {
+				if err := refreshPRWorktree(ctx, s.cfg.RepoRoot, existing.ByPath.Path, branch, headSHA, runGit); err != nil {
+					return nil, err
+				}
+			}
 			return &worktreeResponse{
 				Key:          key,
 				Kind:         req.Kind,
@@ -297,16 +302,21 @@ type gitRunner func(ctx context.Context, cwd string, args ...string) (string, er
 
 func addWorktreeForRequest(ctx context.Context, repoRoot, worktreePath, branch, baseRef, headSHA, baseRemote string, run gitRunner) error {
 	if strings.TrimSpace(headSHA) != "" {
-		if err := verifyCommitishWithRunner(ctx, repoRoot, headSHA, run); err != nil {
-			return err
-		}
-		if _, err := run(ctx, repoRoot, "worktree", "add", "-B", branch, worktreePath, headSHA); err != nil {
-			return err
-		}
-		return nil
+		return addPRWorktree(ctx, repoRoot, worktreePath, branch, headSHA, run)
 	}
 
 	return addIssueWorktree(ctx, repoRoot, worktreePath, branch, baseRef, baseRemote, run)
+}
+
+func addPRWorktree(ctx context.Context, repoRoot, worktreePath, branch, headSHA string, run gitRunner) error {
+	if err := verifyCommitishWithRunner(ctx, repoRoot, headSHA, run); err != nil {
+		return err
+	}
+	if _, err := run(ctx, repoRoot, "worktree", "add", "-B", branch, worktreePath, headSHA); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func addIssueWorktree(ctx context.Context, repoRoot, worktreePath, branch, baseRef, baseRemote string, run gitRunner) error {
@@ -325,6 +335,29 @@ func addIssueWorktree(ctx context.Context, repoRoot, worktreePath, branch, baseR
 		return err
 	}
 	if _, err := run(ctx, repoRoot, "worktree", "add", "-B", branch, worktreePath, baseRef); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func refreshPRWorktree(ctx context.Context, repoRoot, worktreePath, branch, headSHA string, run gitRunner) error {
+	if err := verifyCommitishWithRunner(ctx, repoRoot, headSHA, run); err != nil {
+		return err
+	}
+	if _, err := run(ctx, worktreePath, "reset", "--hard"); err != nil {
+		return err
+	}
+	if _, err := run(ctx, worktreePath, "clean", "-fdx"); err != nil {
+		return err
+	}
+	if _, err := run(ctx, worktreePath, "checkout", "-B", branch, headSHA); err != nil {
+		return err
+	}
+	if _, err := run(ctx, worktreePath, "reset", "--hard", headSHA); err != nil {
+		return err
+	}
+	if _, err := run(ctx, worktreePath, "clean", "-fdx"); err != nil {
 		return err
 	}
 

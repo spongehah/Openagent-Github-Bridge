@@ -149,6 +149,7 @@ repositories:
   - 如果远程 ref 不能直接用于 `git worktree add`，会先同步到本地分支再创建
 - PR review 使用 PR head ref 作为 `baseRef`
 - 如果提供 `headSHA`，优先按该 commit 创建 worktree
+- 如果 PR worktree 已存在且再次传入 `headSHA`，会把现有 worktree hard reset/clean 到最新 head，保证目录内容与 PR 一致
 - worktree 路径固定为：
 
 ```text

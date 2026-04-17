@@ -339,10 +339,11 @@ docker run -d \
 1. 用户创建 PR 或添加 `ai-review` 标签
 2. GitHub 发送 webhook 到 Bridge
 3. Bridge 调用 agent 侧 worktree-manager：
-   - 如果是新 Session：创建或复用 worktree（基于 PR head ref / head SHA，分支名 `pr-{number}`）
+   - 创建或复用 worktree，并在每次下发前对齐到当前 PR 的最新 head SHA（分支名 `pr-{number}`）
    - 返回 `worktreePath`
 4. Bridge 调用 OpenCode：
-   - 创建正式 session，并绑定到返回的 `worktreePath`
+   - 新 Session：创建正式 session，并绑定到返回的 `worktreePath`
+   - 已有 Session：复用原 session，但 worktree 已先刷新到最新 PR head
    - 发送 review prompt
 5. OpenCode 独立工作：
    - 检出 PR 代码

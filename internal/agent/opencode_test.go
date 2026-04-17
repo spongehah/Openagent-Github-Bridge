@@ -329,6 +329,83 @@ func TestOpenCodeAdapterDispatchTaskReusesSession(t *testing.T) {
 	}
 }
 
+func TestOpenCodeAdapterDispatchTaskRefreshesPRWorktreeWhenReusingSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	var worktreeChecked bool
+	worktreeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/worktrees/create-or-reuse" {
+			t.Fatalf("unexpected worktree request: %s %s", r.Method, r.URL.Path)
+		}
+
+		var req WorktreeCreateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode worktree request: %v", err)
+		}
+
+		if req.Kind != "pr_review" {
+			t.Fatalf("expected pr_review worktree kind, got %q", req.Kind)
+		}
+		if req.Branch != "pr-42" {
+			t.Fatalf("expected managed PR branch, got %q", req.Branch)
+		}
+		if req.BaseRef != "feature/latest-head" {
+			t.Fatalf("expected PR head ref as baseRef, got %q", req.BaseRef)
+		}
+		if req.HeadSHA != "deadbeef" {
+			t.Fatalf("expected latest head sha, got %q", req.HeadSHA)
+		}
+
+		worktreeChecked = true
+		return jsonResponse(http.StatusOK, WorktreeResult{
+			WorktreePath: "/tmp/worktrees/pr-42",
+			Reused:       true,
+		}), nil
+	})
+
+	var promptChecked bool
+	openCodeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/session/session-456/prompt_async" {
+			t.Fatalf("unexpected OpenCode request: %s %s", r.Method, r.URL.Path)
+		}
+
+		promptChecked = true
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Body:       io.NopCloser(strings.NewReader("")),
+		}, nil
+	})
+
+	adapter := newTestAdapter("", openCodeTransport, worktreeTransport)
+
+	result, err := adapter.DispatchTask(ctx, TaskContext{
+		AgentSessionID: "session-456",
+		RepoOwner:      "openagent",
+		RepoName:       "github-bridge",
+		IssueNumber:    42,
+		Branch:         "feature/latest-head",
+		HeadSHA:        "deadbeef",
+		Sender:         "alice",
+		Prompt:         "Review the PR",
+		EventType:      "pr_review",
+	})
+	if err != nil {
+		t.Fatalf("DispatchTask returned error: %v", err)
+	}
+
+	if !result.Dispatched || result.TaskID != "session-456" {
+		t.Fatalf("unexpected dispatch result: %#v", result)
+	}
+	if !worktreeChecked {
+		t.Fatalf("expected PR worktree refresh before reusing session")
+	}
+	if !promptChecked {
+		t.Fatalf("expected prompt request to be sent")
+	}
+}
+
 func TestOpenCodeAdapterHealthStatusUsesSDKAndAuthHeader(t *testing.T) {
 	t.Parallel()
 
