@@ -19,12 +19,10 @@ Use this checklist to track your progress through the workflow:
 
 - [ ] Phase 1: Parse Issue Reference
 - [ ] Phase 2: Fetch Issue Details
-- [ ] Phase 3: Clone or Locate Repository
-- [ ] Phase 4: Analyze the Issue
-- [ ] Phase 5: Implement the Fix
-- [ ] Phase 6: Verify the Fix
-- [ ] Phase 7: Present Changes & Get Confirmation
-- [ ] Phase 8: Submit Pull Request (User-Approved)
+- [ ] Phase 3: Analyze the Issue
+- [ ] Phase 4: Implement the Fix
+- [ ] Phase 5: Verify the Fix
+- [ ] Phase 6: Submit Pull Request (User-Approved)
 
 ---
 
@@ -98,65 +96,7 @@ From the issue content, identify and note:
 
 ---
 
-## Phase 3: Clone or Locate Repository
-
-Ensure you have local access to the repository source code.
-
-### Step 1: Check current workspace
-
-```bash
-git remote -v 2>/dev/null
-```
-
-- If the output contains `github.com/{owner}/{repo}` (or `github.com:{owner}/{repo}`), you are already in the correct repo. Skip to Step 3.
-
-### Step 2: Clone if needed
-
-If the current workspace is not the target repository, clone it:
-
-```bash
-gh repo clone {owner}/{repo} /tmp/{repo} 2>/dev/null || git clone https://github.com/{owner}/{repo}.git /tmp/{repo}
-```
-
-Then inform the user about the clone location.
-
-### Step 2.5: Change into the repository directory
-
-After locating or cloning the repository, `cd` into the repository directory before running any git commands:
-
-```bash
-cd {repo_path}
-```
-
-### Step 2.7: Check push permission and prepare fork if needed
-
-Determine if you have push access to the repository:
-
-```bash
-gh api repos/{owner}/{repo}/collaborators/$(gh api user --jq '.login') --silent 2>/dev/null
-has_push=$?
-```
-
-If `has_push` is non-zero (no write access), fork the repository now:
-
-```bash
-gh repo fork {owner}/{repo} --remote-name fork --clone=false
-```
-
-This ensures the fork is ready before pushing the current working branch. Note which remote to push to:
-- If you have write access: push to `origin`
-- If you forked: push to `fork`
-
-Store that choice for later commands:
-
-```bash
-push_remote="origin"
-if [ "$has_push" -ne 0 ]; then
-  push_remote="fork"
-fi
-```
-
-### Step 3: Stay on the current branch
+### Stay on the current branch
 
 Do not create a new branch and do not switch branches. Continue working on the branch that is currently checked out in the local repository.
 
@@ -176,11 +116,11 @@ If the current branch is the repository default branch, stop and ask the user ho
 
 ---
 
-## Phase 4: Analyze the Issue
+## Phase 3: Analyze the Issue
 
 Systematically locate the problem in the codebase.
 
-### 4.1 Keyword Search
+### 3.1 Keyword Search
 
 Use the error messages, file paths, and function names from the issue to search:
 
@@ -188,7 +128,7 @@ Use the error messages, file paths, and function names from the issue to search:
 - Use `search_codebase` for semantic searches when the issue describes behavior rather than specific code.
 - Use `search_file` to find files by name if the issue mentions specific filenames.
 
-### 4.2 Understand the Context
+### 3.2 Understand the Context
 
 Once you find candidate files:
 
@@ -200,7 +140,7 @@ Once you find candidate files:
    git log --oneline -10 -- {file_path}
    ```
 
-### 4.3 Root Cause Analysis
+### 3.3 Root Cause Analysis
 
 Before writing any code, produce a structured analysis:
 
@@ -215,7 +155,7 @@ Before writing any code, produce a structured analysis:
 
 This structured output will be referenced in Phase 5 (implementation) and Phase 7 (summary).
 
-### 4.4 Scope Assessment
+### 3.4 Scope Assessment
 
 Before proceeding to implementation, assess the scope:
 
@@ -224,7 +164,7 @@ Before proceeding to implementation, assess the scope:
 
 ---
 
-## Phase 5: Implement the Fix
+## Phase 4: Implement the Fix
 
 Apply the minimal code change to resolve the issue.
 
@@ -243,11 +183,11 @@ Apply the minimal code change to resolve the issue.
 
 ---
 
-## Phase 6: Verify the Fix
+## Phase 5: Verify the Fix
 
 Validate that the fix works and doesn't break anything.
 
-### 6.1 Detect Project Type and Test Runner
+### 5.1 Detect Project Type and Test Runner
 
 Look for common indicators:
 
@@ -261,7 +201,7 @@ Look for common indicators:
 | `pom.xml` | `mvn test` |
 | `build.gradle` | `./gradlew test` |
 
-### 6.2 Run Tests
+### 5.2 Run Tests
 
 ```bash
 # Run the full test suite or scoped tests related to the changed files
@@ -271,7 +211,7 @@ Look for common indicators:
 - If tests **pass**, proceed to Phase 7.
 - If tests **fail**, analyze the failure, adjust the fix, and re-run.
 
-### 6.2.1 No Test Framework Detected
+### 5.2.1 No Test Framework Detected
 
 If no test runner or test files are found:
 
@@ -280,7 +220,7 @@ If no test runner or test files are found:
 3. Note in the PR that automated tests were not available:
    > No automated test framework was detected in this project. The fix was verified via static analysis and manual code review.
 
-### 6.3 Lint / Format Check (if available)
+### 5.3 Lint / Format Check (if available)
 
 Check if the project has lint or format tools configured, and run them:
 
@@ -295,11 +235,11 @@ Fix any lint issues introduced by your changes.
 
 ---
 
-## Phase 7: Present Changes & Get Confirmation
+## Phase 6: Present Changes & Get Confirmation
 
 Present the fix to the user and wait for explicit approval before proceeding.
 
-### 7.1 Show Fix Summary
+### 6.1 Show Fix Summary
 
 ```
 ## Fix Summary for {owner}/{repo}#{number}
@@ -311,27 +251,7 @@ Present the fix to the user and wait for explicit approval before proceeding.
 - `{file_path_2}`: {what was changed and why}
 ```
 
-### 7.2 Show Diff
-
-Display the actual code changes so the user can review them:
-
-```bash
-git diff
-```
-
-Highlight the key modifications and explain their impact.
-
-### 7.3 Wait for User Confirmation
-
-Ask the user:
-> Would you like me to submit these changes as a Pull Request? If anything needs adjustment, let me know.
-
-- If the user **approves**, proceed to Phase 8.
-- If the user **requests changes**, revise the fix (return to Phase 5) and re-present.
-
----
-
-## Phase 8: Submit Pull Request (User-Approved)
+## Phase 6: Submit Pull Request (User-Approved)
 
 Only execute this phase after the user has approved the changes in Phase 7.
 
@@ -353,9 +273,6 @@ Push to the appropriate remote based on the permission check from Phase 3:
 ```bash
 # If you have write access:
 git push origin "$current_branch"
-
-# If you forked the repository in Phase 3:
-git push fork "$current_branch"
 ```
 
 ### Step 2.5: Check for repository PR template
@@ -421,40 +338,18 @@ gh pr create \
 
 > `{head_ref}` is `{current_branch}` for direct push or `{your_username}:{current_branch}` for fork push.
 
+> Ensure that association information is correctly passed through the `--body` parameter of `gh pr create` so that the PR is directly displayed in the Issue's Development panel.
+
 > **Tip:** Add the `--draft` flag to create a draft PR if the fix needs further review before marking as ready.
 
 ### Step 4: Verify & Report
 
 - Capture the PR URL from the `gh pr create` output.
-- Report to the user:
+- Report to the user in issue:
   > ✅ PR created successfully: {PR_URL}
   > Please review the PR page for any CI checks or reviewer feedback.
 - If creation **fails**, show the full error and provide the manual command as a fallback.
 
-### Fallback: Manual Instructions
-
-If the user declines auto-submission or any step fails, present:
-
-1. **Suggested commit message:**
-   ```
-   fix: {short description} (#{number})
-
-   {Detailed explanation}
-
-   Closes #{number}
-   ```
-2. **PR creation command:**
-   ```bash
-   gh pr create \
-     --title "fix: {short description}" \
-     --body "..." \
-     --base {default_branch} \
-     --head {current_branch}
-   ```
-3. **Recommend next steps:**
-   - Review the diff: `git diff {default_branch}`
-   - Commit and push the changes
-   - Create the PR and verify CI passes
 
 ---
 
@@ -464,7 +359,7 @@ Handle these common failure scenarios gracefully:
 
 | Scenario | Action |
 |---|---|
-| `gh` CLI not installed | Fall back to `git clone` and `fetch_content`. Suggest installing gh: `brew install gh` or see https://cli.github.com |
+| `gh` CLI not installed | Suggest installing gh: `brew install gh` or see https://cli.github.com |
 | `gh auth` not configured | Prompt user to run `gh auth login` and retry |
 | Repository is private / 403 | Inform the user that authentication is required and guide them to authenticate |
 | Issue not found / 404 | Double-check the URL and ask the user to verify |
@@ -475,7 +370,7 @@ Handle these common failure scenarios gracefully:
 | `git push` permission denied | Auto-fork the repository and push to fork |
 | `gh pr create` fails | Show error details and provide manual command |
 | User's `gh` not authenticated | Prompt user to run `gh auth login` first |
-| Current branch already has an open PR | Show the existing PR URL and ask whether to update that PR instead of opening a new one |
+| Current branch already has an open PR | Prioritize updating the existing PR; if permissions are insufficient, open a new one |
 | Current branch is the default branch | Stop and ask the user whether to choose a different working branch, because a normal PR cannot target the same branch as both head and base |
 | No test framework found | Run static analysis with `get_problems`, verify manually, and note in PR |
 | Issue contains multiple problems | Fix the most critical problem first; note remaining items as follow-up |
@@ -487,4 +382,3 @@ Handle these common failure scenarios gracefully:
 
 - **Local operations:** All code analysis and modification happens locally. Only standard Git and GitHub API operations (clone, push, PR creation) send data to GitHub.
 - **Authentication:** Uses your existing `gh` CLI credentials. No additional credentials are stored.
-- **User consent required:** The agent will not push code or create PRs without explicit user approval in Phase 7.
