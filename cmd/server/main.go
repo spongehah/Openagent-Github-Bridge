@@ -36,7 +36,15 @@ func main() {
 	}
 
 	// Initialize components
-	sessionManager := session.NewMemoryManager(cfg.Session.TTL)
+	sessionManager, err := session.NewManager(context.Background(), cfg.Session)
+	if err != nil {
+		log.Fatalf("Failed to initialize session manager: %v", err)
+	}
+	defer func() {
+		if err := sessionManager.Close(); err != nil {
+			log.Printf("Failed to close session manager: %v", err)
+		}
+	}()
 	// Use MultiRepoOpenCodeAdapter for multi-repo support
 	// Routes tasks to repo-specific OpenCode instances based on config
 	openCodeAgent := agent.NewMultiRepoOpenCodeAdapter(cfg)

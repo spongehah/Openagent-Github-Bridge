@@ -271,8 +271,11 @@ func bindEnvVars(v *viper.Viper) {
 	_ = v.BindEnv("opencode.worktree_manager_password", "WORKTREE_MANAGER_PASSWORD")
 
 	// Redis
+	_ = v.BindEnv("session.storage", "SESSION_STORAGE")
+	_ = v.BindEnv("session.ttl", "SESSION_TTL")
 	_ = v.BindEnv("session.redis.addr", "REDIS_ADDR")
 	_ = v.BindEnv("session.redis.password", "REDIS_PASSWORD")
+	_ = v.BindEnv("session.redis.db", "REDIS_DB")
 }
 
 // Validate checks if required configuration fields are set.
@@ -283,6 +286,21 @@ func (c *Config) Validate() error {
 	if c.GitHub.Token == "" {
 		return fmt.Errorf("GITHUB_TOKEN is required")
 	}
+	if c.Session.TTL <= 0 {
+		return fmt.Errorf("session.ttl must be greater than 0")
+	}
+
+	sessionStorage := strings.ToLower(strings.TrimSpace(c.Session.Storage))
+	switch sessionStorage {
+	case "", "memory":
+	case "redis":
+		if strings.TrimSpace(c.Session.Redis.Addr) == "" {
+			return fmt.Errorf("session.redis.addr is required when session.storage=redis")
+		}
+	default:
+		return fmt.Errorf("unsupported session.storage: %s", c.Session.Storage)
+	}
+
 	return nil
 }
 

@@ -125,6 +125,9 @@ type Manager interface {
 
 	// StartCleanup starts a background goroutine to clean expired sessions.
 	StartCleanup(ctx context.Context, interval time.Duration)
+
+	// Close releases any resources held by the manager.
+	Close() error
 }
 
 // MemoryManager implements Manager using in-memory storage.
@@ -217,6 +220,11 @@ func (m *MemoryManager) StartCleanup(ctx context.Context, interval time.Duration
 			m.cleanupExpired()
 		}
 	}
+}
+
+// Close releases resources held by the memory-backed session manager.
+func (m *MemoryManager) Close() error {
+	return nil
 }
 
 // cleanupExpired removes all expired sessions.
