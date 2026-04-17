@@ -68,14 +68,18 @@ func (c *Config) GetOpenCodeConfigForRepo(owner, repo string) OpenCodeConfig {
 // FeaturesConfig holds feature toggle configuration.
 // Principle: Only events with actual triggered actions need an enable config.
 type FeaturesConfig struct {
-	AIFix    AIFixConfig    `mapstructure:"ai_fix"`    // Issue label trigger (ai-fix)
+	AIFix    AIFixConfig    `mapstructure:"ai_fix"`    // Issue planning/coding features
 	PRReview PRReviewConfig `mapstructure:"pr_review"` // PR review features
 }
 
-// AIFixConfig configures the ai-fix label trigger feature.
+// AIFixConfig configures the ai-fix family of issue triggers.
 type AIFixConfig struct {
-	Enabled bool     `mapstructure:"enabled"` // Enable ai-fix label trigger
-	Labels  []string `mapstructure:"labels"`  // Labels that trigger ai-fix (default: "ai-fix")
+	Enabled                 bool     `mapstructure:"enabled"`                    // Enable ai-fix family features
+	Labels                  []string `mapstructure:"labels"`                     // Labels that trigger legacy ai-fix coding (default: "ai-fix")
+	PlanLabelTriggerEnabled bool     `mapstructure:"plan_label_trigger_enabled"` // Enable issue planning via label
+	PlanLabels              []string `mapstructure:"plan_labels"`                // Labels that trigger planning (default: "ai-plan")
+	CommentTriggerEnabled   bool     `mapstructure:"comment_trigger_enabled"`    // Enable issue coding via slash command comment
+	CommentCommands         []string `mapstructure:"comment_commands"`           // Slash commands that trigger coding (default: "/go")
 }
 
 // PRReviewConfig configures the PR review features.
@@ -243,6 +247,10 @@ func setDefaults(v *viper.Viper) {
 	// AI-Fix: Issue label trigger (e.g., "ai-fix" label triggers auto-fix)
 	v.SetDefault("features.ai_fix.enabled", true)
 	v.SetDefault("features.ai_fix.labels", []string{"ai-fix"})
+	v.SetDefault("features.ai_fix.plan_label_trigger_enabled", true)
+	v.SetDefault("features.ai_fix.plan_labels", []string{"ai-plan"})
+	v.SetDefault("features.ai_fix.comment_trigger_enabled", true)
+	v.SetDefault("features.ai_fix.comment_commands", []string{"/go"})
 
 	// PR Review: Auto review on PR opened or labeled
 	v.SetDefault("features.pr_review.enabled", false) // PR opened auto-review: disabled by default

@@ -36,7 +36,7 @@ func NewBridgeService(
 		agent:          ag,
 		triggerConfig:  tc,
 		featuresConfig: fc,
-		promptBuilder:  NewPromptBuilder(fc.AIFix.Labels),
+		promptBuilder:  NewPromptBuilder(fc.AIFix.Labels, fc.AIFix.PlanLabels, fc.AIFix.CommentCommands),
 	}
 }
 
@@ -126,8 +126,8 @@ func (s *BridgeService) shouldProcess(task *queue.Task) bool {
 		return true
 	}
 
-	// Check if the task is triggered by a configured label (ai-fix)
-	if s.isLabelTriggered(task) {
+	// Check if the task is triggered by a configured issue automation feature.
+	if s.isLabelTriggered(task) || s.isPlanLabelTriggered(task) || s.isIssueCodingCommentTriggered(task) {
 		return true
 	}
 
@@ -214,6 +214,47 @@ func (s *BridgeService) isLabelTriggered(task *queue.Task) bool {
 	return false
 }
 
+// isPlanLabelTriggered checks if the task has a planning label (e.g., "ai-plan").
+func (s *BridgeService) isPlanLabelTriggered(task *queue.Task) bool {
+	if !s.featuresConfig.AIFix.Enabled || !s.featuresConfig.AIFix.PlanLabelTriggerEnabled {
+		return false
+	}
+
+	if task.Action != "labeled" {
+		return false
+	}
+
+	for _, taskLabel := range task.Labels {
+		for _, triggerLabel := range s.featuresConfig.AIFix.PlanLabels {
+			if strings.EqualFold(taskLabel, triggerLabel) {
+				log.Printf("[Bridge] Issue #%d triggered by ai-plan label: %s", task.Number, taskLabel)
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// isIssueCodingCommentTriggered checks if the issue comment starts with a coding slash command (e.g., "/go").
+func (s *BridgeService) isIssueCodingCommentTriggered(task *queue.Task) bool {
+	if !s.featuresConfig.AIFix.Enabled || !s.featuresConfig.AIFix.CommentTriggerEnabled {
+		return false
+	}
+
+	if task.Type != queue.TaskTypeIssueComment || task.Action != "created" {
+		return false
+	}
+
+	command, _ := matchSlashCommand(task.CommentBody, s.featuresConfig.AIFix.CommentCommands)
+	if command == "" {
+		return false
+	}
+
+	log.Printf("[Bridge] Issue #%d triggered by coding command: %s", task.Number, command)
+	return true
+}
+
 func hasTriggerPrefixAtStartOfFirstLine(content, prefix string) bool {
 	if prefix == "" {
 		return false
@@ -226,6 +267,30 @@ func hasTriggerPrefixAtStartOfFirstLine(content, prefix string) bool {
 	}
 
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(firstLine)), normalizedPrefix)
+}
+
+func matchSlashCommand(content string, commands []string) (string, string) {
+	trimmed := strings.TrimLeft(content, " \t\r\n")
+	if trimmed == "" {
+		return "", ""
+	}
+
+	normalizedContent := strings.ToLower(trimmed)
+	for _, command := range commands {
+		normalizedCommand := strings.ToLower(strings.TrimSpace(command))
+		if normalizedCommand == "" || !strings.HasPrefix(normalizedContent, normalizedCommand) {
+			continue
+		}
+		if len(trimmed) > len(normalizedCommand) {
+			next := trimmed[len(normalizedCommand)]
+			if next != ' ' && next != '\t' && next != '\r' && next != '\n' {
+				continue
+			}
+		}
+		return command, strings.TrimSpace(trimmed[len(normalizedCommand):])
+	}
+
+	return "", ""
 }
 
 // getMatchedTriggerLabel returns the first matched trigger label if any.

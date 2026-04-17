@@ -135,6 +135,11 @@ func (h *WebhookHandler) createTaskFromEvent(event *ghwebhook.WebhookEvent) (*qu
 		if event.Action != "created" {
 			return nil, nil
 		}
+		// GitHub issue_comment covers both issues and PR conversations.
+		// Ignore PR discussion comments so slash commands like /go stay issue-scoped.
+		if payload.Issue.PullRequest != nil {
+			return nil, nil
+		}
 		return &queue.Task{
 			ID:          generateTaskID(),
 			Type:        queue.TaskTypeIssueComment,
