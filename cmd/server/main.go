@@ -80,13 +80,9 @@ func main() {
 
 	// Register handlers
 	webhookHandler := handler.NewWebhookHandler(cfg.GitHub, taskQueue)
+	healthHandler := handler.NewHealthHandler(openCodeAgent, "1.0.0")
 	router.POST("/webhook", webhookHandler.HandleWebhook)
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "healthy",
-			"version": "1.0.0",
-		})
-	})
+	router.GET("/health", healthHandler.HandleHealth)
 
 	// Create HTTP server
 	srv := &http.Server{

@@ -14,6 +14,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/openagent/github-bridge/internal/config"
@@ -83,23 +85,49 @@ func (m *MultiRepoOpenCodeAdapter) DispatchTask(ctx context.Context, task TaskCo
 // HealthCheck checks the health of all configured OpenCode instances.
 // Returns error if any instance is unhealthy.
 func (m *MultiRepoOpenCodeAdapter) HealthCheck(ctx context.Context) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	return m.HealthStatus(ctx).Err()
+}
 
-	// If no adapters yet, check default
-	if len(m.adapters) == 0 {
-		defaultAdapter := NewOpenCodeAdapter(m.config.OpenCode)
-		return defaultAdapter.HealthCheck(ctx)
+// HealthStatus returns structured health details for all configured repositories.
+func (m *MultiRepoOpenCodeAdapter) HealthStatus(ctx context.Context) HealthReport {
+	report := HealthReport{
+		Healthy:      true,
+		Repositories: make(map[string]RepositoryHealthStatus),
 	}
 
-	// Check all adapters
-	for repoKey, adapter := range m.adapters {
-		if err := adapter.HealthCheck(ctx); err != nil {
-			return fmt.Errorf("health check failed for %s: %w", repoKey, err)
+	repoKeys := m.GetConfiguredRepos()
+	sort.Strings(repoKeys)
+
+	if len(repoKeys) == 0 {
+		defaultStatus := NewOpenCodeAdapter(m.config.OpenCode).repositoryHealthStatus(ctx)
+		report.Healthy = defaultStatus.Healthy
+		report.Repositories[defaultHealthRepository] = defaultStatus
+		return report
+	}
+
+	for _, repoKey := range repoKeys {
+		owner, repo, ok := strings.Cut(repoKey, "/")
+		if !ok || owner == "" || repo == "" {
+			report.Healthy = false
+			report.Repositories[repoKey] = RepositoryHealthStatus{
+				OpenCode: ServiceHealthStatus{
+					Error: "invalid repository key",
+				},
+				WorktreeManager: ServiceHealthStatus{
+					Error: "invalid repository key",
+				},
+			}
+			continue
+		}
+
+		repositoryStatus := m.getOrCreateAdapter(owner, repo).repositoryHealthStatus(ctx)
+		report.Repositories[repoKey] = repositoryStatus
+		if !repositoryStatus.Healthy {
+			report.Healthy = false
 		}
 	}
 
-	return nil
+	return report
 }
 
 // GetConfiguredRepos returns a list of explicitly configured repositories.

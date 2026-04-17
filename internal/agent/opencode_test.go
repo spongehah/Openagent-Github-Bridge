@@ -279,7 +279,7 @@ func TestOpenCodeAdapterDispatchTaskReusesSession(t *testing.T) {
 	}
 }
 
-func TestOpenCodeAdapterHealthCheckUsesSDKAndAuthHeader(t *testing.T) {
+func TestOpenCodeAdapterHealthStatusUsesSDKAndAuthHeader(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -323,7 +323,126 @@ func TestOpenCodeAdapterHealthCheckUsesSDKAndAuthHeader(t *testing.T) {
 		httpClient: &http.Client{Transport: worktreeTransport},
 	}
 
+	report := adapter.HealthStatus(ctx)
+	if !report.Healthy {
+		t.Fatalf("HealthStatus reported unhealthy state: %#v", report)
+	}
+
+	repositoryStatus, ok := report.Repositories[defaultHealthRepository]
+	if !ok {
+		t.Fatalf("expected %q repository status, got %#v", defaultHealthRepository, report.Repositories)
+	}
+	if !repositoryStatus.OpenCode.Healthy {
+		t.Fatalf("expected OpenCode to be healthy, got %#v", repositoryStatus.OpenCode)
+	}
+	if repositoryStatus.OpenCode.Version != "1.0.0" {
+		t.Fatalf("expected OpenCode version to be reported, got %#v", repositoryStatus.OpenCode)
+	}
+	if !repositoryStatus.WorktreeManager.Healthy {
+		t.Fatalf("expected worktree-manager to be healthy, got %#v", repositoryStatus.WorktreeManager)
+	}
+
 	if err := adapter.HealthCheck(ctx); err != nil {
 		t.Fatalf("HealthCheck returned error: %v", err)
+	}
+}
+
+func TestOpenCodeAdapterHealthStatusIncludesDependencyFailures(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	worktreeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/health" {
+			t.Fatalf("unexpected worktree health path: %s", r.URL.Path)
+		}
+		return jsonResponse(http.StatusServiceUnavailable, map[string]any{
+			"error": "worktree down",
+		}), nil
+	})
+
+	openCodeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/global/health" {
+			t.Fatalf("unexpected health path: %s", r.URL.Path)
+		}
+		return jsonResponse(http.StatusOK, map[string]any{
+			"healthy": false,
+			"version": "1.0.1",
+		}), nil
+	})
+
+	adapter := newTestAdapter("", openCodeTransport, worktreeTransport)
+
+	report := adapter.HealthStatus(ctx)
+	if report.Healthy {
+		t.Fatalf("expected unhealthy report, got %#v", report)
+	}
+
+	repositoryStatus := report.Repositories[defaultHealthRepository]
+	if repositoryStatus.Healthy {
+		t.Fatalf("expected repository health to be unhealthy, got %#v", repositoryStatus)
+	}
+	if repositoryStatus.OpenCode.Error != "health check returned unhealthy response" {
+		t.Fatalf("unexpected OpenCode error: %#v", repositoryStatus.OpenCode)
+	}
+	if !strings.Contains(repositoryStatus.WorktreeManager.Error, "worktree-manager health returned status 503") {
+		t.Fatalf("unexpected worktree-manager error: %#v", repositoryStatus.WorktreeManager)
+	}
+
+	if err := adapter.HealthCheck(ctx); err == nil {
+		t.Fatalf("expected HealthCheck to fail")
+	}
+}
+
+func TestMultiRepoOpenCodeAdapterHealthStatusChecksConfiguredRepositories(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	cfg := &config.Config{
+		Repositories: map[string]config.RepositoryConfig{
+			"openagent/healthy":   {},
+			"openagent/unhealthy": {},
+		},
+	}
+	adapter := NewMultiRepoOpenCodeAdapter(cfg)
+	adapter.adapters["openagent/healthy"] = newTestAdapter(
+		"",
+		roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, map[string]any{
+				"healthy": true,
+				"version": "1.0.0",
+			}), nil
+		}),
+		roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, map[string]any{
+				"status": "ok",
+			}), nil
+		}),
+	)
+	adapter.adapters["openagent/unhealthy"] = newTestAdapter(
+		"",
+		roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, map[string]any{
+				"healthy": true,
+				"version": "1.0.0",
+			}), nil
+		}),
+		roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusInternalServerError, map[string]any{
+				"error": "down",
+			}), nil
+		}),
+	)
+
+	report := adapter.HealthStatus(ctx)
+	if report.Healthy {
+		t.Fatalf("expected multi-repo health report to be unhealthy, got %#v", report)
+	}
+	if !report.Repositories["openagent/healthy"].Healthy {
+		t.Fatalf("expected healthy repository status, got %#v", report.Repositories["openagent/healthy"])
+	}
+	if report.Repositories["openagent/unhealthy"].Healthy {
+		t.Fatalf("expected unhealthy repository status, got %#v", report.Repositories["openagent/unhealthy"])
 	}
 }

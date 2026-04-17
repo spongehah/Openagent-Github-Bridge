@@ -36,6 +36,10 @@ type WorktreeResult struct {
 	Reused       bool   `json:"reused"`
 }
 
+type worktreeManagerHealthResponse struct {
+	Status string `json:"status"`
+}
+
 // WorktreeManagerClient calls the agent-side companion service.
 type WorktreeManagerClient struct {
 	baseURL    string
@@ -97,25 +101,72 @@ func (c *WorktreeManagerClient) CreateOrReuse(ctx context.Context, req WorktreeC
 
 // HealthCheck verifies the companion service is reachable.
 func (c *WorktreeManagerClient) HealthCheck(ctx context.Context) error {
+	status := c.HealthStatus(ctx)
+	if status.Healthy {
+		return nil
+	}
+	if status.Error == "" {
+		return fmt.Errorf("worktree-manager health returned unhealthy response")
+	}
+
+	return fmt.Errorf(status.Error)
+}
+
+// HealthStatus returns structured health details for the companion service.
+func (c *WorktreeManagerClient) HealthStatus(ctx context.Context) ServiceHealthStatus {
+	if strings.TrimSpace(c.baseURL) == "" {
+		return ServiceHealthStatus{
+			Error: "worktree-manager host is not configured",
+		}
+	}
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
 	if err != nil {
-		return fmt.Errorf("failed to create worktree-manager health request: %w", err)
+		return ServiceHealthStatus{
+			Error: fmt.Sprintf("failed to create worktree-manager health request: %v", err),
+		}
 	}
 
 	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("worktree-manager health request failed: %w", err)
+		return ServiceHealthStatus{
+			Error: fmt.Sprintf("worktree-manager health request failed: %v", err),
+		}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("worktree-manager health returned status %d: %s", resp.StatusCode, string(body))
+		return ServiceHealthStatus{
+			Error: fmt.Sprintf("worktree-manager health returned status %d: %s", resp.StatusCode, string(body)),
+		}
 	}
 
-	return nil
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ServiceHealthStatus{
+			Error: fmt.Sprintf("failed to read worktree-manager health response: %v", err),
+		}
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return ServiceHealthStatus{Healthy: true}
+	}
+
+	var health worktreeManagerHealthResponse
+	if err := json.Unmarshal(body, &health); err != nil {
+		return ServiceHealthStatus{
+			Error: fmt.Sprintf("failed to decode worktree-manager health response: %v", err),
+		}
+	}
+	if health.Status != "" && !strings.EqualFold(health.Status, "ok") {
+		return ServiceHealthStatus{
+			Error: fmt.Sprintf("worktree-manager health returned status %q", health.Status),
+		}
+	}
+
+	return ServiceHealthStatus{Healthy: true}
 }
 
 func (c *WorktreeManagerClient) setAuthHeader(req *http.Request) {

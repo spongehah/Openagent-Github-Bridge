@@ -73,6 +73,9 @@ type Agent interface {
 
 	// HealthCheck verifies the agent is operational.
 	HealthCheck(ctx context.Context) error
+
+	// HealthStatus returns structured health details for the agent and its dependencies.
+	HealthStatus(ctx context.Context) HealthReport
 }
 
 // AgentFactory creates agents based on configuration.

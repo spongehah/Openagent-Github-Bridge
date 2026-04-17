@@ -118,24 +118,57 @@ func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*
 // HealthCheck verifies the OpenCode server and companion worktree service are reachable.
 // Reference: https://open-code.ai/docs/en/server#global
 func (a *OpenCodeAdapter) HealthCheck(ctx context.Context) error {
+	return a.HealthStatus(ctx).Err()
+}
+
+// HealthStatus returns structured health details for the OpenCode server and worktree manager.
+// Reference: https://open-code.ai/docs/en/server#global
+func (a *OpenCodeAdapter) HealthStatus(ctx context.Context) HealthReport {
+	repositoryStatus := a.repositoryHealthStatus(ctx)
+
+	return HealthReport{
+		Healthy: repositoryStatus.Healthy,
+		Repositories: map[string]RepositoryHealthStatus{
+			defaultHealthRepository: repositoryStatus,
+		},
+	}
+}
+
+func (a *OpenCodeAdapter) repositoryHealthStatus(ctx context.Context) RepositoryHealthStatus {
+	openCodeStatus := a.openCodeHealthStatus(ctx)
+	worktreeStatus := ServiceHealthStatus{
+		Error: "worktree-manager client is not configured",
+	}
+	if a.worktreeManager != nil {
+		worktreeStatus = a.worktreeManager.HealthStatus(ctx)
+	}
+
+	return RepositoryHealthStatus{
+		Healthy:         openCodeStatus.Healthy && worktreeStatus.Healthy,
+		OpenCode:        openCodeStatus,
+		WorktreeManager: worktreeStatus,
+	}
+}
+
+func (a *OpenCodeAdapter) openCodeHealthStatus(ctx context.Context) ServiceHealthStatus {
 	var health openCodeHealthResponse
 	if err := a.client.Get(ctx, "global/health", nil, &health); err != nil {
-		return fmt.Errorf("health check request failed: %w", err)
+		return ServiceHealthStatus{
+			Error: fmt.Sprintf("health check request failed: %v", err),
+		}
 	}
 
 	if !health.Healthy {
-		return fmt.Errorf("health check returned unhealthy response")
+		return ServiceHealthStatus{
+			Error:   "health check returned unhealthy response",
+			Version: health.Version,
+		}
 	}
 
-	if a.worktreeManager == nil {
-		return fmt.Errorf("worktree-manager client is not configured")
+	return ServiceHealthStatus{
+		Healthy: true,
+		Version: health.Version,
 	}
-
-	if err := a.worktreeManager.HealthCheck(ctx); err != nil {
-		return fmt.Errorf("worktree-manager health check failed: %w", err)
-	}
-
-	return nil
 }
 
 // createIsolatedSession prepares the worktree through the companion service
