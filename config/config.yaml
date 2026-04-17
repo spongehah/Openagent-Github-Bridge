@@ -32,7 +32,7 @@ opencode:
   # HTTP Basic Auth 密码 (可选，留空则不启用鉴权)
   password: "${OPENCODE_SERVER_PASSWORD:}"
   # 默认模型
-  default_model: "cpa-openai/gpt-5.3-codex"
+  default_model: "opencode/big-pickle"
   # 请求超时
   timeout: "120s"
   # Agent 侧 worktree-manager 地址

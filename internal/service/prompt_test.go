@@ -46,6 +46,9 @@ func TestPromptBuilderIssuePromptIncludesSkillCoordination(t *testing.T) {
 	if !strings.Contains(prompt, "## GitHub Interaction Protocol") {
 		t.Fatalf("expected GitHub interaction protocol section in prompt: %q", prompt)
 	}
+	if !strings.Contains(prompt, "Write all GitHub-facing user communication in Chinese.") {
+		t.Fatalf("expected Chinese GitHub communication guidance in prompt: %q", prompt)
+	}
 	if !strings.Contains(prompt, "The user is interacting with you on GitHub, not in a direct chat session.") {
 		t.Fatalf("expected GitHub-only interaction guidance in prompt: %q", prompt)
 	}
@@ -54,6 +57,45 @@ func TestPromptBuilderIssuePromptIncludesSkillCoordination(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "Prefer updating the single progress comment managed by `skill github-progress-comment` instead of posting separate wrap-up comments.") {
 		t.Fatalf("expected progress comment preference in prompt: %q", prompt)
+	}
+}
+
+func TestPromptBuilderLabelTriggeredPromptUsesShorterContextAndTaskFirstOrder(t *testing.T) {
+	t.Parallel()
+
+	builder := NewPromptBuilder([]string{"ai-fix"})
+	sess := session.NewSession(session.NewSessionKey("openagent", "github-bridge", session.SessionTypeIssue, 3))
+
+	prompt := builder.Build(&queue.Task{
+		Type:      queue.TaskTypeIssue,
+		Action:    "labeled",
+		Owner:     "openagent",
+		Repo:      "github-bridge",
+		Number:    3,
+		Branch:    "main",
+		Title:     "Trim the prompt",
+		IssueBody: "Prompt body",
+		Sender:    "alice",
+		Labels:    []string{"bug", "ai-fix"},
+	}, sess, true)
+
+	if strings.Contains(prompt, "## Task Context") {
+		t.Fatalf("did not expect verbose task context section in label prompt: %q", prompt)
+	}
+	if strings.Contains(prompt, "**Default Branch:**") {
+		t.Fatalf("did not expect default branch in label prompt: %q", prompt)
+	}
+	if strings.Contains(prompt, "**Labels:**") || strings.Contains(prompt, "- **Labels:**") {
+		t.Fatalf("did not expect labels list in label prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "## Issue #3: Trim the prompt") {
+		t.Fatalf("expected issue heading with issue number in label prompt: %q", prompt)
+	}
+
+	issueIdx := strings.Index(prompt, "## Issue #3: Trim the prompt")
+	skillIdx := strings.Index(prompt, "## Skill Order")
+	if issueIdx == -1 || skillIdx == -1 || issueIdx > skillIdx {
+		t.Fatalf("expected issue details before skill coordination in label prompt: %q", prompt)
 	}
 }
 

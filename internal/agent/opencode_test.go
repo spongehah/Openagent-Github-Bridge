@@ -196,11 +196,20 @@ func TestOpenCodeAdapterDispatchTaskCreatesSessionAndPrompt(t *testing.T) {
 			if !strings.Contains(part["text"].(string), "The user is communicating with you through GitHub; keep user-facing feedback on GitHub and let the task prompt define the exact mechanism.") {
 				t.Fatalf("expected GitHub communication guidance in prompt: %#v", part["text"])
 			}
+			if !strings.Contains(part["text"].(string), "Write all GitHub-facing user communication in Chinese.") {
+				t.Fatalf("expected Chinese GitHub communication guidance in prompt: %#v", part["text"])
+			}
 			if !strings.Contains(part["text"].(string), "Treat the task prompt below as the source of truth for task workflow, skill order, and GitHub-side coordination.") {
 				t.Fatalf("expected task-prompt source-of-truth guidance in prompt: %#v", part["text"])
 			}
 			if !strings.Contains(part["text"].(string), "do not repeat the same GitHub action twice") {
 				t.Fatalf("expected duplicate-action guidance in prompt: %#v", part["text"])
+			}
+			if strings.Contains(part["text"].(string), "**Working Branch:**") {
+				t.Fatalf("did not expect working branch in wrapper prompt: %#v", part["text"])
+			}
+			if strings.Contains(part["text"].(string), "**Labels:**") {
+				t.Fatalf("did not expect labels in wrapper prompt: %#v", part["text"])
 			}
 			if !strings.Contains(part["text"].(string), "Fix the bug") {
 				t.Fatalf("expected task prompt to be preserved: %#v", part["text"])

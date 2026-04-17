@@ -131,16 +131,6 @@ func (pb *PromptBuilder) buildPRReviewPrompt(task *queue.Task) string {
 //
 //	This issue has been labeled with `ai-fix`, indicating an automated fix is requested.
 //
-//	## Task Context
-//
-//	- **Repository:** openagent/bridge
-//	- **Default Branch:** main
-//	- **Issue Number:** #7
-//	- **Triggered by:** @bob (via label)
-//	- **Labels:** bug, ai-fix
-//
-//	---
-//
 //	## Issue: Null pointer in auth
 //
 //	Calling login() with nil user crashes the server.
@@ -156,21 +146,7 @@ func (pb *PromptBuilder) buildLabelTriggeredPrompt(task *queue.Task, label strin
 
 	sb.WriteString("# Automated Task Request\n\n")
 	sb.WriteString(fmt.Sprintf("This issue has been labeled with `%s`, indicating an automated fix is requested.\n\n", label))
-
-	sb.WriteString("## Task Context\n\n")
-	sb.WriteString(fmt.Sprintf("- **Repository:** %s/%s\n", task.Owner, task.Repo))
-	sb.WriteString(fmt.Sprintf("- **Default Branch:** %s\n", task.Branch))
-	sb.WriteString(fmt.Sprintf("- **Issue Number:** #%d\n", task.Number))
-	sb.WriteString(fmt.Sprintf("- **Triggered by:** @%s (via label)\n", task.Sender))
-
-	if len(task.Labels) > 0 {
-		sb.WriteString(fmt.Sprintf("- **Labels:** %s\n", strings.Join(task.Labels, ", ")))
-	}
-
-	sb.WriteString("\n---\n\n")
-	pb.writeSkillCoordination(&sb, task)
-
-	sb.WriteString(fmt.Sprintf("## Issue: %s\n\n", task.Title))
+	sb.WriteString(fmt.Sprintf("## Issue #%d: %s\n\n", task.Number, task.Title))
 	if task.IssueBody != "" {
 		sb.WriteString(task.IssueBody)
 	} else if task.Body != "" {
@@ -182,6 +158,8 @@ func (pb *PromptBuilder) buildLabelTriggeredPrompt(task *queue.Task, label strin
 	sb.WriteString("## Task Goal\n\n")
 	sb.WriteString("Analyze the issue, implement the necessary fix, verify the change, and open a pull request linked to this issue.\n\n")
 	sb.WriteString(fmt.Sprintf("Expected PR linkage: include `Fixes #%d` or `Closes #%d` in the PR description.\n", task.Number, task.Number))
+	sb.WriteString("\n---\n\n")
+	pb.writeSkillCoordination(&sb, task)
 
 	return sb.String()
 }
@@ -285,6 +263,7 @@ func (pb *PromptBuilder) writeSkillCoordination(sb *strings.Builder, task *queue
 	sb.WriteString("## GitHub Interaction Protocol\n\n")
 	sb.WriteString("- The user is interacting with you on GitHub, not in a direct chat session.\n")
 	sb.WriteString("- Send every user-facing progress update, final summary, and blocker notice back through GitHub.\n")
+	sb.WriteString("- Write all GitHub-facing user communication in Chinese.\n")
 	sb.WriteString(fmt.Sprintf("- Prefer updating the single progress comment managed by `skill %s` instead of posting separate wrap-up comments.\n", githubProgressCommentSkillName))
 	if task.Type == queue.TaskTypePRReview {
 		sb.WriteString("- For PR review tasks, keep status updates in the progress comment and submit the final verdict as a formal GitHub review.\n\n")

@@ -206,30 +206,16 @@ func (a *OpenCodeAdapter) buildPrompt(task TaskContext) string {
 	sb.WriteString("# Execution Requirements\n\n")
 	sb.WriteString("- Follow the repository instructions, including `AGENTS.md`.\n")
 	sb.WriteString("- The user is communicating with you through GitHub; keep user-facing feedback on GitHub and let the task prompt define the exact mechanism.\n")
+	sb.WriteString("- Write all GitHub-facing user communication in Chinese.\n")
 	sb.WriteString("- Treat the task prompt below as the source of truth for task workflow, skill order, and GitHub-side coordination.\n")
 	sb.WriteString("- When instructions overlap, prefer the more specific task prompt or called skill, and do not repeat the same GitHub action twice.\n\n")
 	sb.WriteString("---\n\n")
 
-	sb.WriteString("# Task Context\n\n")
+	sb.WriteString("# Dispatch Context\n\n")
 	sb.WriteString(fmt.Sprintf("**Repository:** %s/%s\n", task.RepoOwner, task.RepoName))
-	sb.WriteString(fmt.Sprintf("**Clone URL:** %s\n", task.RepoURL))
-	if task.DefaultBranch != "" {
-		sb.WriteString(fmt.Sprintf("**Default Branch:** %s\n", task.DefaultBranch))
-	}
-	if task.BaseBranch != "" {
-		sb.WriteString(fmt.Sprintf("**Base Branch:** %s\n", task.BaseBranch))
-	}
-	if task.Branch != "" {
-		sb.WriteString(fmt.Sprintf("**Working Branch:** %s\n", task.Branch))
-	}
-	if task.HeadSHA != "" {
-		sb.WriteString(fmt.Sprintf("**Head SHA:** %s\n", task.HeadSHA))
-	}
 	sb.WriteString(fmt.Sprintf("**Issue/PR Number:** #%d\n", task.IssueNumber))
-	sb.WriteString(fmt.Sprintf("**Triggered by:** @%s\n", task.Sender))
-
-	if len(task.Labels) > 0 {
-		sb.WriteString(fmt.Sprintf("**Labels:** %s\n", strings.Join(task.Labels, ", ")))
+	if task.Sender != "" {
+		sb.WriteString(fmt.Sprintf("**Triggered by:** @%s\n", task.Sender))
 	}
 
 	sb.WriteString("\n---\n\n")

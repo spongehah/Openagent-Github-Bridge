@@ -143,51 +143,36 @@ If `has_push` is non-zero (no write access), fork the repository now:
 gh repo fork {owner}/{repo} --remote-name fork --clone=false
 ```
 
-This ensures the fork is ready before creating the fix branch. Note which remote to push to:
+This ensures the fork is ready before pushing the current working branch. Note which remote to push to:
 - If you have write access: push to `origin`
 - If you forked: push to `fork`
 
-### Step 3: Ensure correct branch
-
-First, detect the default branch:
+Store that choice for later commands:
 
 ```bash
-# Detect the default branch (prefer GitHub API, fallback to git)
+push_remote="origin"
+if [ "$has_push" -ne 0 ]; then
+  push_remote="fork"
+fi
+```
+
+### Step 3: Stay on the current branch
+
+Do not create a new branch and do not switch branches. Continue working on the branch that is currently checked out in the local repository.
+
+```bash
+# Detect the current branch and make sure we are not in a detached HEAD state
+current_branch=$(git branch --show-current 2>/dev/null)
+if [ -z "$current_branch" ]; then
+  echo "Detached HEAD: please check out the branch you want to use before continuing."
+fi
+
 default_branch=$(gh api repos/{owner}/{repo} --jq '.default_branch' 2>/dev/null)
-if [ -z "$default_branch" ]; then
-  default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
-fi
-if [ -z "$default_branch" ]; then
-  default_branch="main"
-fi
 ```
 
-Then check out the default branch and pull latest changes:
+Use `current_branch` for later push and PR steps. If the current branch already contains unrelated user work, stop and ask whether to continue on that branch.
 
-```bash
-git checkout $default_branch
-git pull --ff-only
-```
-
-Check if the fix branch already exists:
-
-```bash
-if git show-ref --verify --quiet refs/heads/fix/issue-{number} 2>/dev/null || \
-   git show-ref --verify --quiet refs/remotes/origin/fix/issue-{number} 2>/dev/null; then
-  echo "Branch fix/issue-{number} already exists"
-fi
-```
-
-If the branch already exists, ask the user whether to:
-- **Reuse** the existing branch and continue from where it left off
-- **Recreate** the branch from the latest default branch (deletes existing work)
-- **Rename** to `fix/issue-{number}-v2` (or incrementing suffix)
-
-Create the fix branch:
-
-```bash
-git checkout -b fix/issue-{number}
-```
+If the current branch is the repository default branch, stop and ask the user how to proceed, because GitHub cannot open a normal PR from the default branch back into itself without creating or choosing a different head branch.
 
 ---
 
@@ -361,16 +346,16 @@ git commit -m "fix: {short description} (#{number})
 Closes #{number}"
 ```
 
-### Step 2: Push the branch
+### Step 2: Push the current branch
 
 Push to the appropriate remote based on the permission check from Phase 3:
 
 ```bash
-# If you have write access (push succeeded in Phase 3 check):
-git push origin fix/issue-{number}
+# If you have write access:
+git push origin "$current_branch"
 
 # If you forked the repository in Phase 3:
-git push fork fix/issue-{number}
+git push fork "$current_branch"
 ```
 
 ### Step 2.5: Check for repository PR template
@@ -415,6 +400,15 @@ Fixes #{number}.
 ```
 
 ```bash
+default_branch=$(gh api repos/{owner}/{repo} --jq '.default_branch' 2>/dev/null)
+
+# Decide the PR head ref based on where the branch was pushed
+head_ref="$current_branch"
+if [ "$push_remote" = "fork" ]; then
+  your_username=$(gh api user --jq '.login')
+  head_ref="${your_username}:${current_branch}"
+fi
+
 gh pr create \
   --repo {owner}/{repo} \
   --title "fix: {short description}" \
@@ -423,7 +417,9 @@ gh pr create \
   --head {head_ref}
 ```
 
-> `{head_ref}` is `fix/issue-{number}` for direct push or `{your_username}:fix/issue-{number}` for fork push.
+> Detect `{default_branch}` from the repository metadata when creating the PR.
+
+> `{head_ref}` is `{current_branch}` for direct push or `{your_username}:{current_branch}` for fork push.
 
 > **Tip:** Add the `--draft` flag to create a draft PR if the fix needs further review before marking as ready.
 
@@ -452,7 +448,8 @@ If the user declines auto-submission or any step fails, present:
    gh pr create \
      --title "fix: {short description}" \
      --body "..." \
-     --base {default_branch}
+     --base {default_branch} \
+     --head {current_branch}
    ```
 3. **Recommend next steps:**
    - Review the diff: `git diff {default_branch}`
@@ -478,11 +475,11 @@ Handle these common failure scenarios gracefully:
 | `git push` permission denied | Auto-fork the repository and push to fork |
 | `gh pr create` fails | Show error details and provide manual command |
 | User's `gh` not authenticated | Prompt user to run `gh auth login` first |
-| Branch already exists on remote | Ask user whether to force-push or create a new branch name |
-| PR already exists for this branch | Show existing PR URL and ask whether to update |
+| Current branch already has an open PR | Show the existing PR URL and ask whether to update that PR instead of opening a new one |
+| Current branch is the default branch | Stop and ask the user whether to choose a different working branch, because a normal PR cannot target the same branch as both head and base |
 | No test framework found | Run static analysis with `get_problems`, verify manually, and note in PR |
 | Issue contains multiple problems | Fix the most critical problem first; note remaining items as follow-up |
-| Fix branch already exists | Ask user to reuse, recreate, or rename the branch |
+| Detached HEAD / no current branch | Ask the user to check out the intended working branch before continuing |
 
 ---
 
