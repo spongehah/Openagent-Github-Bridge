@@ -138,6 +138,77 @@ func TestShouldProcessPlanLabelRequiresPlanSubfeatureEnabled(t *testing.T) {
 	}
 }
 
+func TestGetTaskAgentName(t *testing.T) {
+	t.Parallel()
+
+	svc := &BridgeService{
+		featuresConfig: config.FeaturesConfig{
+			AIFix: config.AIFixConfig{
+				Enabled:                 true,
+				Labels:                  []string{"ai-fix"},
+				PlanLabelTriggerEnabled: true,
+				PlanLabels:              []string{"ai-plan"},
+				CommentTriggerEnabled:   true,
+				CommentCommands:         []string{"/go"},
+			},
+		},
+		promptBuilder: NewPromptBuilder([]string{"ai-fix"}, []string{"ai-plan"}, []string{"/go"}),
+	}
+
+	cases := []struct {
+		name string
+		task *queue.Task
+		want string
+	}{
+		{
+			name: "plan label uses plan agent",
+			task: &queue.Task{
+				Type:   queue.TaskTypeIssue,
+				Action: "labeled",
+				Labels: []string{"bug", "ai-plan"},
+			},
+			want: "plan",
+		},
+		{
+			name: "fix label uses build agent",
+			task: &queue.Task{
+				Type:   queue.TaskTypeIssue,
+				Action: "labeled",
+				Labels: []string{"ai-fix"},
+			},
+			want: "build",
+		},
+		{
+			name: "slash command uses build agent",
+			task: &queue.Task{
+				Type:        queue.TaskTypeIssueComment,
+				Action:      "created",
+				CommentBody: "/go implement retry",
+			},
+			want: "build",
+		},
+		{
+			name: "pr review keeps default agent",
+			task: &queue.Task{
+				Type:   queue.TaskTypePRReview,
+				Action: "opened",
+			},
+			want: "",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := svc.getTaskAgentName(tc.task); got != tc.want {
+				t.Fatalf("expected agent %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
 func TestHasTriggerPrefixAtStartOfFirstLine(t *testing.T) {
 	t.Parallel()
 

@@ -150,6 +150,9 @@ func TestOpenCodeAdapterDispatchTaskReusesSession(t *testing.T) {
 		if part["text"] != "Fix the bug" {
 			t.Fatalf("expected task prompt to be sent without wrapper, got %#v", part["text"])
 		}
+		if _, exists := body["agent"]; exists {
+			t.Fatalf("did not expect agent override for default dispatch, got %#v", body["agent"])
+		}
 
 		promptChecked = true
 		return &http.Response{
@@ -237,6 +240,9 @@ func TestOpenCodeAdapterDispatchTaskRefreshesPRWorktreeWhenReusingSession(t *tes
 		if part["text"] != "Review the PR" {
 			t.Fatalf("expected task prompt to be sent without wrapper, got %#v", part["text"])
 		}
+		if _, exists := body["agent"]; exists {
+			t.Fatalf("did not expect agent override for PR review dispatch, got %#v", body["agent"])
+		}
 
 		promptChecked = true
 		return &http.Response{
@@ -318,6 +324,74 @@ func TestDispatchTaskSendsRawTaskPrompt(t *testing.T) {
 	}
 	if !result.Dispatched || result.TaskID != "session-raw" {
 		t.Fatalf("unexpected dispatch result: %#v", result)
+	}
+}
+
+func TestSendPromptAsyncDoesNotSetNoReply(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	worktreeTransport := roundTripperFunc(func(w *http.Request) (*http.Response, error) {
+		t.Fatalf("worktree manager should not be called when reusing a session")
+		return nil, nil
+	})
+
+	openCodeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/session/session-async/prompt_async" {
+			t.Fatalf("unexpected OpenCode request: %s %s", r.Method, r.URL.Path)
+		}
+
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode prompt request: %v", err)
+		}
+		if _, exists := body["noReply"]; exists {
+			t.Fatalf("prompt_async payload must not set noReply; OpenCode treats noReply as context-only")
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Body:       io.NopCloser(strings.NewReader("")),
+		}, nil
+	})
+
+	adapter := newTestAdapter("", openCodeTransport, worktreeTransport)
+	if err := adapter.sendPromptAsync(ctx, "session-async", "Plan the fix", ""); err != nil {
+		t.Fatalf("sendPromptAsync returned error: %v", err)
+	}
+}
+
+func TestSendPromptAsyncIncludesAgentOverride(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	worktreeTransport := roundTripperFunc(func(w *http.Request) (*http.Response, error) {
+		t.Fatalf("worktree manager should not be called when reusing a session")
+		return nil, nil
+	})
+
+	openCodeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/session/session-plan/prompt_async" {
+			t.Fatalf("unexpected OpenCode request: %s %s", r.Method, r.URL.Path)
+		}
+
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode prompt request: %v", err)
+		}
+		if body["agent"] != "plan" {
+			t.Fatalf("expected agent override plan, got %#v", body["agent"])
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Body:       io.NopCloser(strings.NewReader("")),
+		}, nil
+	})
+
+	adapter := newTestAdapter("", openCodeTransport, worktreeTransport)
+	if err := adapter.sendPromptAsync(ctx, "session-plan", "Plan the fix", "plan"); err != nil {
+		t.Fatalf("sendPromptAsync returned error: %v", err)
 	}
 }
 

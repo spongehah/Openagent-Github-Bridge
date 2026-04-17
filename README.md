@@ -121,7 +121,7 @@ opencode server --port 4097
 
 本仓库在 `skills/` 下提供了建议安装到 OpenCode 侧的 skill，例如：
 
-Bridge 下发的 prompt 可能会显式要求 Agent 优先调用 `github-progress-comment`，然后按任务类型继续调用 `issue-to-pr` 或 `pr-review` 等其它 skill。
+Bridge 下发的 prompt 可能会显式要求 Agent 优先调用 `github-progress-comment`，然后按任务类型继续调用 `issue-to-pr`、`gh-issue-plan` 或 `pr-review` 等其它 skill。
 
 安装：
 ```bash
@@ -344,10 +344,13 @@ docker run -d \
 2. GitHub 发送 webhook 到 Bridge
 3. Bridge 根据触发方式选择 skill：
    - `ai-plan` -> `gh-issue-plan`
-   - `/go` -> `gh-pr-create`
+   - `/go` -> `issue-to-pr`
 4. Agent 执行对应流程：
    - `ai-plan` 只产出方案，不编码
    - `/go` 读取 issue 与补充说明，编码并创建 PR
+5. Bridge 根据触发方式选择 OpenCode agent：
+   - `ai-plan` -> `plan`
+   - `ai-fix` / `/go` -> `build`
 
 ### PR Review 流程
 

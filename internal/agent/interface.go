@@ -26,6 +26,10 @@ type TaskContext struct {
 	// Agent session ID for reuse (empty = create new session)
 	AgentSessionID string `json:"agent_session_id,omitempty"`
 
+	// OpenCode agent to execute this task with (for example: "build" or "plan").
+	// Empty means the server default agent selection is used.
+	AgentName string `json:"agent_name,omitempty"`
+
 	// Repository information
 	RepoURL       string `json:"repo_url"`
 	RepoOwner     string `json:"repo_owner"`

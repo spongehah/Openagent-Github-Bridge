@@ -214,7 +214,7 @@ func TestPromptBuilderPlanLabelTriggeredPromptUsesGhIssuePlan(t *testing.T) {
 	}
 }
 
-func TestPromptBuilderGoCommentTriggeredPromptUsesGhPRCreate(t *testing.T) {
+func TestPromptBuilderGoCommentTriggeredPromptUsesIssueToPR(t *testing.T) {
 	t.Parallel()
 
 	builder := NewPromptBuilder([]string{"ai-fix"}, []string{"ai-plan"}, []string{"/go"})
@@ -233,8 +233,8 @@ func TestPromptBuilderGoCommentTriggeredPromptUsesGhPRCreate(t *testing.T) {
 		Sender:      "alice",
 	}, sess, true)
 
-	if !strings.Contains(prompt, "2. **Then:** call `skill gh-pr-create`") {
-		t.Fatalf("expected gh-pr-create guidance in slash prompt: %q", prompt)
+	if !strings.Contains(prompt, "2. **Then:** call `skill issue-to-pr`") {
+		t.Fatalf("expected issue-to-pr guidance in slash prompt: %q", prompt)
 	}
 	if !strings.Contains(prompt, "## User Instruction\n\nkeep the response backward compatible") {
 		t.Fatalf("expected stripped user instruction in slash prompt: %q", prompt)

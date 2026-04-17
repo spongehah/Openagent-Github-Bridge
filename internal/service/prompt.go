@@ -18,7 +18,6 @@ type PromptBuilder struct {
 const githubProgressCommentSkillName = "github-progress-comment"
 const issueToPRSkillName = "issue-to-pr"
 const issuePlanSkillName = "gh-issue-plan"
-const issueCommentCodeSkillName = "gh-pr-create"
 const prReviewSkillName = "pr-review"
 
 // NewPromptBuilder creates a new prompt builder.
@@ -345,7 +344,7 @@ func (pb *PromptBuilder) writeSkillCoordination(sb *strings.Builder, task *queue
 	outcomeLine := "- Response / branch / follow-up link"
 	if task.Type == queue.TaskTypePRReview {
 		outcomeLine = "- Review outcome / review link / follow-up"
-	} else if pb.getFeatureSkill(task) == issueToPRSkillName || pb.getFeatureSkill(task) == issueCommentCodeSkillName {
+	} else if pb.getFeatureSkill(task) == issueToPRSkillName {
 		outcomeLine = "- PR / branch / follow-up link"
 	} else if pb.getFeatureSkill(task) == issuePlanSkillName {
 		outcomeLine = "- Plan / open questions / follow-up link"
@@ -411,14 +410,14 @@ func (pb *PromptBuilder) getFeatureSkill(task *queue.Task) string {
 		if task.Action == "labeled" && pb.getMatchedPlanLabel(task.Labels) != "" {
 			return issuePlanSkillName
 		}
-		if task.Action == "labeled" && pb.getMatchedLabel(task.Labels) != "" {
-			return issueToPRSkillName
-		}
-		if task.Type == queue.TaskTypeIssueComment {
-			if command, _ := matchSlashCommand(task.CommentBody, pb.commentCommands); command != "" {
-				return issueCommentCodeSkillName
+			if task.Action == "labeled" && pb.getMatchedLabel(task.Labels) != "" {
+				return issueToPRSkillName
 			}
-		}
+			if task.Type == queue.TaskTypeIssueComment {
+				if command, _ := matchSlashCommand(task.CommentBody, pb.commentCommands); command != "" {
+					return issueToPRSkillName
+				}
+			}
 		return ""
 	}
 }

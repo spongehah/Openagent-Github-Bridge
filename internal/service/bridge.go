@@ -89,6 +89,7 @@ func (s *BridgeService) Process(ctx context.Context, task *queue.Task) error {
 	taskContext := agent.TaskContext{
 		SessionKey:     sessionKey.String(),
 		AgentSessionID: sess.AgentSessionID, // Reuse existing agent session if available
+		AgentName:      s.getTaskAgentName(processedTask),
 		RepoURL:        processedTask.RepoURL,
 		RepoOwner:      processedTask.Owner,
 		RepoName:       processedTask.Repo,
@@ -158,6 +159,28 @@ func (s *BridgeService) shouldProcess(task *queue.Task) bool {
 	}
 
 	return hasTriggerPrefixAtStartOfFirstLine(content, s.triggerConfig.Prefix)
+}
+
+func (s *BridgeService) getTaskAgentName(task *queue.Task) string {
+	if task == nil || s.promptBuilder == nil {
+		return ""
+	}
+
+	if task.Action == "labeled" && s.promptBuilder.getMatchedPlanLabel(task.Labels) != "" {
+		return "plan"
+	}
+
+	if task.Action == "labeled" && s.promptBuilder.getMatchedLabel(task.Labels) != "" {
+		return "build"
+	}
+
+	if task.Type == queue.TaskTypeIssueComment {
+		if command, _ := matchSlashCommand(task.CommentBody, s.featuresConfig.AIFix.CommentCommands); command != "" {
+			return "build"
+		}
+	}
+
+	return ""
 }
 
 // shouldProcessPRReview determines if a PR should be auto-reviewed.

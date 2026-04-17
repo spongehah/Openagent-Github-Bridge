@@ -83,7 +83,11 @@ func NewOpenCodeAdapter(cfg config.OpenCodeConfig) *OpenCodeAdapter {
 // Flow:
 // 1. Reuse an existing session OR create a new isolated session for this issue/PR
 // 2. If new session: call the companion worktree-manager service, then create an OpenCode session in that path
-// 3. Send a prompt with no reply so dispatch remains fire-and-forget
+// 3. Send the task through prompt_async so dispatch remains fire-and-forget
+//
+// Important: OpenCode's Prompt API with NoReply=true is not equivalent to prompt_async.
+// NoReply=true records a user/context message without starting assistant work, while
+// prompt_async enqueues execution and returns immediately.
 func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*DispatchResult, error) {
 	sessionID := task.AgentSessionID
 	worktreePath := ""
@@ -119,7 +123,7 @@ func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*
 		sessionID = session.ID
 	}
 
-	if err := a.sendPromptAsync(ctx, sessionID, task.Prompt); err != nil {
+	if err := a.sendPromptAsync(ctx, sessionID, task.Prompt, task.AgentName); err != nil {
 		return &DispatchResult{
 			Dispatched: false,
 			TaskID:     sessionID,
@@ -248,10 +252,15 @@ func buildSessionTitle(title string, now time.Time) string {
 // The Go SDK does not expose a typed prompt_async helper yet, so we dispatch the
 // documented async server endpoint through the SDK client to retain shared base URL,
 // auth, timeout, and retry behavior.
+//
+// Important: do not replace this with Session.Prompt(..., NoReply=true).
+// In current OpenCode semantics, NoReply=true is context-only and does not start
+// assistant execution, while prompt_async does start work and returns 204 immediately.
+// The OpenCode agent is selected per prompt dispatch, not at session creation time.
 // References:
 // - OpenCode SDK: https://opencode.ai/docs/sdk
 // - OpenCode Server: https://open-code.ai/docs/en/server#messages
-func (a *OpenCodeAdapter) sendPromptAsync(ctx context.Context, sessionID, prompt string) error {
+func (a *OpenCodeAdapter) sendPromptAsync(ctx context.Context, sessionID, prompt, agentName string) error {
 	params := opencode.SessionPromptParams{
 		Parts: opencode.F([]opencode.SessionPromptParamsPartUnion{
 			opencode.SessionPromptParamsPart{
@@ -266,6 +275,9 @@ func (a *OpenCodeAdapter) sendPromptAsync(ctx context.Context, sessionID, prompt
 			ProviderID: opencode.F(a.model.ProviderID),
 			ModelID:    opencode.F(a.model.ModelID),
 		})
+	}
+	if strings.TrimSpace(agentName) != "" {
+		params.Agent = opencode.F(agentName)
 	}
 
 	if err := a.client.Execute(ctx, http.MethodPost, fmt.Sprintf("session/%s/prompt_async", sessionID), params, nil); err != nil {
