@@ -102,6 +102,18 @@ opencode server --port 4097
 # 可使用 systemd 或 supervisor 管理多个实例
 ```
 
+#### 1.3.1 可选安装的 OpenCode Skills
+
+本仓库在 `skills/` 下提供了建议安装到 OpenCode 侧的 skill，例如：
+
+Bridge 下发的 prompt 会显式要求 Agent 优先调用 `github-progress-comment`，然后按任务类型继续调用 `issue-to-pr` 或 `pr-review` 等其它 skill。
+
+安装：
+```bash
+cd /path/to/openagent-github-bridge
+cp -r skills/* ~/.agents/skills/
+```
+
 #### 1.4 启动必需的 worktree-manager companion service
 
 **这是必备步骤。**
