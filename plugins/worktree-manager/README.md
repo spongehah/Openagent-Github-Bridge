@@ -86,6 +86,9 @@ Bridge 的职责是：
 - `WORKTREE_MANAGER_ROOT`
   - worktree 托管根目录
   - 默认 `~/.opencode/worktrees`
+- `WORKTREE_MANAGER_BASE_REMOTE`
+  - issue worktree 基线 remote
+  - 默认 `origin`
 - `WORKTREE_MANAGER_USERNAME`
   - 默认 `worktree-manager`
 - `WORKTREE_MANAGER_PASSWORD`
@@ -100,6 +103,7 @@ cd /path/to/openagent-github-bridge
 
 export WORKTREE_MANAGER_REPO_ROOT="/Users/example/repos/openagent/github-bridge"
 export WORKTREE_MANAGER_ADDR="127.0.0.1:4081"
+export WORKTREE_MANAGER_BASE_REMOTE="origin"
 export WORKTREE_MANAGER_PASSWORD=""
 
 go run ./plugins/worktree-manager
@@ -112,6 +116,7 @@ go build -o ./bin/worktree-manager ./plugins/worktree-manager
 
 WORKTREE_MANAGER_REPO_ROOT="/Users/example/repos/openagent/github-bridge" \
 WORKTREE_MANAGER_ADDR="127.0.0.1:4081" \
+WORKTREE_MANAGER_BASE_REMOTE="origin" \
 ./bin/worktree-manager
 ```
 
@@ -140,6 +145,8 @@ repositories:
 ## 语义规则
 
 - issue 使用默认分支作为 `baseRef`
+  - 创建时优先直接使用 `{baseRemote}/{baseRef}`，默认即 `origin/main`
+  - 如果远程 ref 不能直接用于 `git worktree add`，会先同步到本地分支再创建
 - PR review 使用 PR head ref 作为 `baseRef`
 - 如果提供 `headSHA`，优先按该 commit 创建 worktree
 - worktree 路径固定为：

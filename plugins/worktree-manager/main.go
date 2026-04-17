@@ -22,6 +22,7 @@ type config struct {
 	Addr         string
 	RepoRoot     string
 	WorktreeRoot string
+	BaseRemote   string
 	Username     string
 	Password     string
 }
@@ -74,7 +75,7 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	log.Printf("worktree-manager listening on %s for repo %s", cfg.Addr, cfg.RepoRoot)
+	log.Printf("worktree-manager listening on %s for repo %s (base remote: %s)", cfg.Addr, cfg.RepoRoot, cfg.BaseRemote)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("worktree-manager server failed: %v", err)
 	}
@@ -112,6 +113,7 @@ func (s *service) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":       "ok",
 		"repoRoot":     s.cfg.RepoRoot,
 		"worktreeRoot": s.cfg.WorktreeRoot,
+		"baseRemote":   s.cfg.BaseRemote,
 	})
 }
 
@@ -167,10 +169,6 @@ func (s *service) createOrReuse(ctx context.Context, req worktreeRequest) (*work
 
 	key := fmt.Sprintf("%s/%s/%s/%d", owner, repo, req.Kind, req.Number)
 	worktreePath := filepath.Join(s.cfg.WorktreeRoot, owner, repo, worktreeDirectoryName(req.Kind, req.Number))
-	sourceRef := baseRef
-	if headSHA != "" {
-		sourceRef = headSHA
-	}
 
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create managed worktree root: %w", err)
@@ -179,10 +177,6 @@ func (s *service) createOrReuse(ctx context.Context, req worktreeRequest) (*work
 	if _, err := runGit(ctx, s.cfg.RepoRoot, "fetch", "--all", "--prune"); err != nil {
 		return nil, err
 	}
-	if err := verifyCommitish(ctx, s.cfg.RepoRoot, sourceRef); err != nil {
-		return nil, err
-	}
-
 	existing, err := getWorktreeState(ctx, s.cfg.RepoRoot, worktreePath, branch)
 	if err != nil {
 		return nil, err
@@ -213,7 +207,7 @@ func (s *service) createOrReuse(ctx context.Context, req worktreeRequest) (*work
 		}
 	}
 
-	if _, err := runGit(ctx, s.cfg.RepoRoot, "worktree", "add", "-B", branch, worktreePath, sourceRef); err != nil {
+	if err := addWorktreeForRequest(ctx, s.cfg.RepoRoot, worktreePath, branch, baseRef, headSHA, s.cfg.BaseRemote, runGit); err != nil {
 		return nil, err
 	}
 
@@ -248,12 +242,14 @@ func loadConfig() (config, error) {
 		worktreeRoot = filepath.Join(homeDir, ".opencode", "worktrees")
 	}
 
+	baseRemote := firstNonEmpty(os.Getenv("WORKTREE_MANAGER_BASE_REMOTE"), "origin")
 	username := firstNonEmpty(os.Getenv("WORKTREE_MANAGER_USERNAME"), "worktree-manager")
 
 	return config{
 		Addr:         addr,
 		RepoRoot:     normalizedRepoRoot,
 		WorktreeRoot: filepath.Clean(worktreeRoot),
+		BaseRemote:   strings.TrimSpace(baseRemote),
 		Username:     username,
 		Password:     os.Getenv("WORKTREE_MANAGER_PASSWORD"),
 	}, nil
@@ -292,6 +288,100 @@ func validateBranchName(ctx context.Context, cwd, branch string) error {
 
 func verifyCommitish(ctx context.Context, cwd, ref string) error {
 	if _, err := runGit(ctx, cwd, "rev-parse", "--verify", ref+"^{commit}"); err != nil {
+		return fmt.Errorf("unable to resolve ref %s to a commit: %w", ref, err)
+	}
+	return nil
+}
+
+type gitRunner func(ctx context.Context, cwd string, args ...string) (string, error)
+
+func addWorktreeForRequest(ctx context.Context, repoRoot, worktreePath, branch, baseRef, headSHA, baseRemote string, run gitRunner) error {
+	if strings.TrimSpace(headSHA) != "" {
+		if err := verifyCommitishWithRunner(ctx, repoRoot, headSHA, run); err != nil {
+			return err
+		}
+		if _, err := run(ctx, repoRoot, "worktree", "add", "-B", branch, worktreePath, headSHA); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	return addIssueWorktree(ctx, repoRoot, worktreePath, branch, baseRef, baseRemote, run)
+}
+
+func addIssueWorktree(ctx context.Context, repoRoot, worktreePath, branch, baseRef, baseRemote string, run gitRunner) error {
+	remoteRef := qualifyRemoteRef(baseRemote, baseRef)
+	if err := verifyCommitishWithRunner(ctx, repoRoot, remoteRef, run); err == nil {
+		if _, addErr := run(ctx, repoRoot, "worktree", "add", "-B", branch, worktreePath, remoteRef); addErr == nil {
+			return nil
+		} else if err := syncRemoteBranchToLocal(ctx, repoRoot, baseRemote, baseRef, run); err != nil {
+			return fmt.Errorf("failed to create worktree from %s and failed to sync local %s: %w", remoteRef, baseRef, err)
+		}
+	} else if err := syncRemoteBranchToLocal(ctx, repoRoot, baseRemote, baseRef, run); err != nil {
+		return fmt.Errorf("failed to resolve %s and failed to sync local %s: %w", remoteRef, baseRef, err)
+	}
+
+	if err := verifyCommitishWithRunner(ctx, repoRoot, baseRef, run); err != nil {
+		return err
+	}
+	if _, err := run(ctx, repoRoot, "worktree", "add", "-B", branch, worktreePath, baseRef); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func qualifyRemoteRef(baseRemote, baseRef string) string {
+	trimmedBase := strings.TrimSpace(baseRef)
+	trimmedRemote := strings.TrimSpace(baseRemote)
+	switch {
+	case trimmedBase == "":
+		return ""
+	case trimmedRemote == "":
+		return trimmedBase
+	case strings.HasPrefix(trimmedBase, "refs/"):
+		return trimmedBase
+	case strings.HasPrefix(trimmedBase, trimmedRemote+"/"):
+		return trimmedBase
+	default:
+		return trimmedRemote + "/" + trimmedBase
+	}
+}
+
+func syncRemoteBranchToLocal(ctx context.Context, repoRoot, baseRemote, baseRef string, run gitRunner) error {
+	localBranch, ok := localBranchName(baseRemote, baseRef)
+	if !ok {
+		return fmt.Errorf("baseRef %s cannot be synced to a local branch", baseRef)
+	}
+	if strings.TrimSpace(baseRemote) == "" {
+		return fmt.Errorf("base remote is required to sync branch %s", localBranch)
+	}
+
+	refspec := fmt.Sprintf("%s:refs/heads/%s", localBranch, localBranch)
+	if _, err := run(ctx, repoRoot, "fetch", baseRemote, refspec); err != nil {
+		return fmt.Errorf("failed to sync %s/%s to local branch %s: %w", baseRemote, localBranch, localBranch, err)
+	}
+
+	return nil
+}
+
+func localBranchName(baseRemote, baseRef string) (string, bool) {
+	trimmedBase := strings.TrimSpace(baseRef)
+	trimmedRemote := strings.TrimSpace(baseRemote)
+	switch {
+	case trimmedBase == "":
+		return "", false
+	case strings.HasPrefix(trimmedBase, "refs/"):
+		return "", false
+	case trimmedRemote != "" && strings.HasPrefix(trimmedBase, trimmedRemote+"/"):
+		return strings.TrimPrefix(trimmedBase, trimmedRemote+"/"), true
+	default:
+		return trimmedBase, true
+	}
+}
+
+func verifyCommitishWithRunner(ctx context.Context, cwd, ref string, run gitRunner) error {
+	if _, err := run(ctx, cwd, "rev-parse", "--verify", ref+"^{commit}"); err != nil {
 		return fmt.Errorf("unable to resolve ref %s to a commit: %w", ref, err)
 	}
 	return nil

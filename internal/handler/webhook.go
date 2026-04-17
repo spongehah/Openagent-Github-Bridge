@@ -80,6 +80,10 @@ func (h *WebhookHandler) HandleWebhook(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "event not actionable"})
 		return
 	}
+	if task == nil {
+		c.JSON(http.StatusOK, gin.H{"message": "event not actionable"})
+		return
+	}
 
 	// Enqueue the task for async processing
 	if err := h.taskQueue.Enqueue(task); err != nil {

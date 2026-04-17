@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sst/opencode-sdk-go"
 	"github.com/sst/opencode-sdk-go/option"
@@ -108,6 +110,16 @@ func TestBuildWorktreeCreateRequestForPR(t *testing.T) {
 	}
 }
 
+func TestBuildSessionTitle(t *testing.T) {
+	t.Parallel()
+
+	got := buildSessionTitle("openagent/github-bridge/issue/42", time.Date(2026, time.April, 17, 16, 30, 30, 0, time.FixedZone("UTC+8", 8*60*60)))
+	want := "openagent/github-bridge/issue/42-20260417-163030"
+	if got != want {
+		t.Fatalf("expected session title %q, got %q", want, got)
+	}
+}
+
 func TestOpenCodeAdapterDispatchTaskCreatesSessionAndPrompt(t *testing.T) {
 	t.Parallel()
 
@@ -145,7 +157,21 @@ func TestOpenCodeAdapterDispatchTaskCreatesSessionAndPrompt(t *testing.T) {
 				t.Fatalf("decode session request: %v", err)
 			}
 
-			if got := body["title"]; got != "openagent/github-bridge/issue/42" {
+			title, ok := body["title"].(string)
+			if !ok {
+				t.Fatalf("expected string session title, got %#v", body["title"])
+			}
+			if ok, err := regexp.MatchString(`^openagent/github-bridge/issue/42-\d{8}-\d{6}$`, title); err != nil {
+				t.Fatalf("failed to validate session title: %v", err)
+			} else if !ok {
+				t.Fatalf("unexpected session title: %q", title)
+			}
+
+			if got := r.URL.Query().Get("title"); got != "" {
+				t.Fatalf("did not expect title query parameter, got %q", got)
+			}
+
+			if got := body["title"]; got == "openagent/github-bridge/issue/42" {
 				t.Fatalf("unexpected session title: %#v", got)
 			}
 
@@ -153,7 +179,7 @@ func TestOpenCodeAdapterDispatchTaskCreatesSessionAndPrompt(t *testing.T) {
 				"id":        "session-123",
 				"directory": "/tmp/worktrees/issue-42",
 				"projectID": "project-1",
-				"title":     "openagent/github-bridge/issue/42",
+				"title":     title,
 				"version":   "1.0.0",
 				"time": map[string]any{
 					"created": 1,

@@ -228,7 +228,7 @@ func (a *OpenCodeAdapter) buildPrompt(task TaskContext) string {
 // Reference: https://opencode.ai/docs/sdk
 func (a *OpenCodeAdapter) createSession(ctx context.Context, title, directory string) (*opencode.Session, error) {
 	session, err := a.client.Session.New(ctx, opencode.SessionNewParams{
-		Title:     opencode.F(title),
+		Title:     opencode.F(buildSessionTitle(title, time.Now())),
 		Directory: opencode.F(directory),
 	})
 	if err != nil {
@@ -236,6 +236,10 @@ func (a *OpenCodeAdapter) createSession(ctx context.Context, title, directory st
 	}
 
 	return session, nil
+}
+
+func buildSessionTitle(title string, now time.Time) string {
+	return fmt.Sprintf("%s-%s", title, now.Local().Format("20060102-150405"))
 }
 
 // sendPromptAsync sends a prompt to the session asynchronously (fire-and-forget).

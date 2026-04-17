@@ -135,6 +135,7 @@ cd /path/to/openagent-github-bridge
 
 export WORKTREE_MANAGER_REPO_ROOT="/Users/example/repos/openagent/github-bridge"
 export WORKTREE_MANAGER_ADDR="127.0.0.1:4081"
+export WORKTREE_MANAGER_BASE_REMOTE="origin"
 export WORKTREE_MANAGER_PASSWORD=""
 
 go run ./plugins/worktree-manager
@@ -147,6 +148,7 @@ go build -o ./bin/worktree-manager ./plugins/worktree-manager
 
 WORKTREE_MANAGER_REPO_ROOT="/Users/example/repos/openagent/github-bridge" \
 WORKTREE_MANAGER_ADDR="127.0.0.1:4081" \
+WORKTREE_MANAGER_BASE_REMOTE="origin" \
 ./bin/worktree-manager
 ```
 
@@ -301,10 +303,11 @@ docker run -d \
 3. Bridge 验证签名，解析事件
 4. Bridge 创建/获取 Session（复用同一 Issue 的 Session）
 5. Bridge 调用 agent 侧 worktree-manager：
-   - 如果是新 Session：创建或复用 worktree（基于默认分支，分支名 `issue-{number}`）
+   - 如果是新 Session：创建或复用 worktree（优先基于 `origin/main`，其中 `origin` 可配置；分支名 `issue-{number}`）
    - 返回 `worktreePath`
 6. Bridge 调用 OpenCode：
    - 创建正式 session，并绑定到返回的 `worktreePath`
+   - session title 在原有 session key 后追加本地时间戳，形如 `20260417-163030`
    - 发送 prompt（包含 Issue 内容和仓库信息）
 7. OpenCode 独立工作：
    - 分析 Issue
