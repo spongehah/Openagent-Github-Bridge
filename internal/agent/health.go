@@ -16,9 +16,9 @@ type ServiceHealthStatus struct {
 
 // RepositoryHealthStatus describes the health of the services used for a repository.
 type RepositoryHealthStatus struct {
-	Healthy         bool                `json:"healthy"`
-	OpenCode        ServiceHealthStatus `json:"opencode"`
-	WorktreeManager ServiceHealthStatus `json:"worktreeManager"`
+	Healthy          bool                `json:"healthy"`
+	OpenCode         ServiceHealthStatus `json:"opencode"`
+	WorkspaceManager ServiceHealthStatus `json:"workspaceManager"`
 }
 
 // HealthReport contains the aggregated health across all configured repositories.
@@ -52,8 +52,8 @@ func (s RepositoryHealthStatus) summary() string {
 	if !s.OpenCode.Healthy {
 		failures = append(failures, "opencode: "+serviceStatusMessage(s.OpenCode))
 	}
-	if !s.WorktreeManager.Healthy {
-		failures = append(failures, "worktree-manager: "+serviceStatusMessage(s.WorktreeManager))
+	if !s.WorkspaceManager.Healthy {
+		failures = append(failures, "workspace-manager: "+serviceStatusMessage(s.WorkspaceManager))
 	}
 	if len(failures) == 0 {
 		return "unhealthy response"

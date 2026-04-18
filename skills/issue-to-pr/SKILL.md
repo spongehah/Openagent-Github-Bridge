@@ -104,7 +104,7 @@ From the issue content, identify and note:
 
 ### Stay on the current branch
 
-The user has already prepared the correct git worktree and target branch before this conversation starts. Treat the current checkout as the intended working environment.
+The user has already prepared the correct git workspace and target branch before this conversation starts. Treat the current checkout as the intended working environment.
 
 Do not create a new branch, do not switch branches, do not recreate the worktree, and do not try to "fix" the environment by moving to another checkout. Continue working exactly in the branch that is currently checked out in the local repository.
 

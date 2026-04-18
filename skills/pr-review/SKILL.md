@@ -41,7 +41,7 @@ Then load only the analyzer reference files relevant to the current request:
 
 ## Stay on the current branch
 
-The user has already prepared the correct git worktree and target branch before this conversation starts. Treat the current checkout as the intended working environment.
+The user has already prepared the correct git workspace and target branch before this conversation starts. Treat the current checkout as the intended working environment.
 
 Do not create a new branch, do not switch branches, do not recreate the worktree, and do not try to "fix" the environment by moving to another checkout. Review the current diff or PR context from the checkout that is already prepared for you.
 

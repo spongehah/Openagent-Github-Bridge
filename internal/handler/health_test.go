@@ -35,7 +35,7 @@ func TestHealthHandlerReturnsHealthyResponse(t *testing.T) {
 						Healthy: true,
 						Version: "1.0.0",
 					},
-					WorktreeManager: agent.ServiceHealthStatus{
+					WorkspaceManager: agent.ServiceHealthStatus{
 						Healthy: true,
 					},
 				},
@@ -62,8 +62,8 @@ func TestHealthHandlerReturnsHealthyResponse(t *testing.T) {
 	if !response.Services.Bridge.Healthy {
 		t.Fatalf("expected bridge to be healthy, got %#v", response.Services.Bridge)
 	}
-	if !response.Services.Repositories["default"].WorktreeManager.Healthy {
-		t.Fatalf("expected worktree-manager to be healthy, got %#v", response.Services.Repositories["default"])
+	if !response.Services.Repositories["default"].WorkspaceManager.Healthy {
+		t.Fatalf("expected workspace-manager to be healthy, got %#v", response.Services.Repositories["default"])
 	}
 }
 
@@ -83,7 +83,7 @@ func TestHealthHandlerReturns503WhenDependencyIsUnhealthy(t *testing.T) {
 						Healthy: true,
 						Version: "1.0.0",
 					},
-					WorktreeManager: agent.ServiceHealthStatus{
+					WorkspaceManager: agent.ServiceHealthStatus{
 						Error: "timeout",
 					},
 				},
@@ -107,7 +107,7 @@ func TestHealthHandlerReturns503WhenDependencyIsUnhealthy(t *testing.T) {
 	if response.Healthy || response.Status != "unhealthy" {
 		t.Fatalf("unexpected response status: %#v", response)
 	}
-	if response.Services.Repositories["default"].WorktreeManager.Error != "timeout" {
+	if response.Services.Repositories["default"].WorkspaceManager.Error != "timeout" {
 		t.Fatalf("expected dependency error in response, got %#v", response.Services.Repositories["default"])
 	}
 }

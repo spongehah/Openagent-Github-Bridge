@@ -14,10 +14,11 @@ import (
 	"github.com/openagent/github-bridge/internal/config"
 )
 
-// WorktreeCreateRequest represents a create-or-reuse worktree request sent to the companion service.
-type WorktreeCreateRequest struct {
+// WorkspaceCreateRequest represents a create-or-reuse workspace request sent to the companion service.
+type WorkspaceCreateRequest struct {
 	Owner   string `json:"owner"`
 	Repo    string `json:"repo"`
+	RepoURL string `json:"repoURL"`
 	Kind    string `json:"kind"`
 	Number  int    `json:"number"`
 	Branch  string `json:"branch"`
@@ -26,8 +27,8 @@ type WorktreeCreateRequest struct {
 	Force   bool   `json:"force,omitempty"`
 }
 
-// WorktreeResult represents the managed worktree returned by the companion service.
-type WorktreeResult struct {
+// WorkspaceResult represents the managed workspace returned by the companion service.
+type WorkspaceResult struct {
 	Key          string `json:"key"`
 	Kind         string `json:"kind"`
 	Branch       string `json:"branch"`
@@ -36,45 +37,45 @@ type WorktreeResult struct {
 	Reused       bool   `json:"reused"`
 }
 
-type worktreeManagerHealthResponse struct {
+type workspaceManagerHealthResponse struct {
 	Status string `json:"status"`
 }
 
-// WorktreeManagerClient calls the agent-side companion service.
-type WorktreeManagerClient struct {
+// WorkspaceManagerClient calls the agent-side companion service.
+type WorkspaceManagerClient struct {
 	baseURL    string
 	username   string
 	password   string
 	httpClient *http.Client
 }
 
-// NewWorktreeManagerClient creates a new companion service client.
-func NewWorktreeManagerClient(cfg config.OpenCodeConfig, timeout time.Duration) *WorktreeManagerClient {
-	username := cfg.WorktreeManagerUsername
+// NewWorkspaceManagerClient creates a new companion service client.
+func NewWorkspaceManagerClient(cfg config.OpenCodeConfig, timeout time.Duration) *WorkspaceManagerClient {
+	username := cfg.WorkspaceManagerUsername
 	if username == "" {
-		username = "worktree-manager"
+		username = "workspace-manager"
 	}
 
-	return &WorktreeManagerClient{
-		baseURL:  strings.TrimSuffix(cfg.WorktreeManagerHost, "/"),
+	return &WorkspaceManagerClient{
+		baseURL:  strings.TrimSuffix(cfg.WorkspaceManagerHost, "/"),
 		username: username,
-		password: cfg.WorktreeManagerPassword,
+		password: cfg.WorkspaceManagerPassword,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
 	}
 }
 
-// CreateOrReuse creates or reuses an isolated git worktree on the agent machine.
-func (c *WorktreeManagerClient) CreateOrReuse(ctx context.Context, req WorktreeCreateRequest) (*WorktreeResult, error) {
+// CreateOrReuse creates or reuses an isolated git workspace on the agent machine.
+func (c *WorkspaceManagerClient) CreateOrReuse(ctx context.Context, req WorkspaceCreateRequest) (*WorkspaceResult, error) {
 	jsonBody, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal worktree request: %w", err)
+		return nil, fmt.Errorf("failed to marshal workspace request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/worktrees/create-or-reuse", bytes.NewBuffer(jsonBody))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/workspaces/create-or-reuse", bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create worktree-manager request: %w", err)
+		return nil, fmt.Errorf("failed to create workspace-manager request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -82,48 +83,48 @@ func (c *WorktreeManagerClient) CreateOrReuse(ctx context.Context, req WorktreeC
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("worktree-manager request failed: %w", err)
+		return nil, fmt.Errorf("workspace-manager request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("worktree-manager returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("workspace-manager returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result WorktreeResult
+	var result WorkspaceResult
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode worktree-manager response: %w", err)
+		return nil, fmt.Errorf("failed to decode workspace-manager response: %w", err)
 	}
 
 	return &result, nil
 }
 
 // HealthCheck verifies the companion service is reachable.
-func (c *WorktreeManagerClient) HealthCheck(ctx context.Context) error {
+func (c *WorkspaceManagerClient) HealthCheck(ctx context.Context) error {
 	status := c.HealthStatus(ctx)
 	if status.Healthy {
 		return nil
 	}
 	if status.Error == "" {
-		return fmt.Errorf("worktree-manager health returned unhealthy response")
+		return fmt.Errorf("workspace-manager health returned unhealthy response")
 	}
 
 	return fmt.Errorf(status.Error)
 }
 
 // HealthStatus returns structured health details for the companion service.
-func (c *WorktreeManagerClient) HealthStatus(ctx context.Context) ServiceHealthStatus {
+func (c *WorkspaceManagerClient) HealthStatus(ctx context.Context) ServiceHealthStatus {
 	if strings.TrimSpace(c.baseURL) == "" {
 		return ServiceHealthStatus{
-			Error: "worktree-manager host is not configured",
+			Error: "workspace-manager host is not configured",
 		}
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
 	if err != nil {
 		return ServiceHealthStatus{
-			Error: fmt.Sprintf("failed to create worktree-manager health request: %v", err),
+			Error: fmt.Sprintf("failed to create workspace-manager health request: %v", err),
 		}
 	}
 
@@ -132,7 +133,7 @@ func (c *WorktreeManagerClient) HealthStatus(ctx context.Context) ServiceHealthS
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		return ServiceHealthStatus{
-			Error: fmt.Sprintf("worktree-manager health request failed: %v", err),
+			Error: fmt.Sprintf("workspace-manager health request failed: %v", err),
 		}
 	}
 	defer resp.Body.Close()
@@ -140,36 +141,36 @@ func (c *WorktreeManagerClient) HealthStatus(ctx context.Context) ServiceHealthS
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return ServiceHealthStatus{
-			Error: fmt.Sprintf("worktree-manager health returned status %d: %s", resp.StatusCode, string(body)),
+			Error: fmt.Sprintf("workspace-manager health returned status %d: %s", resp.StatusCode, string(body)),
 		}
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return ServiceHealthStatus{
-			Error: fmt.Sprintf("failed to read worktree-manager health response: %v", err),
+			Error: fmt.Sprintf("failed to read workspace-manager health response: %v", err),
 		}
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
 		return ServiceHealthStatus{Healthy: true}
 	}
 
-	var health worktreeManagerHealthResponse
+	var health workspaceManagerHealthResponse
 	if err := json.Unmarshal(body, &health); err != nil {
 		return ServiceHealthStatus{
-			Error: fmt.Sprintf("failed to decode worktree-manager health response: %v", err),
+			Error: fmt.Sprintf("failed to decode workspace-manager health response: %v", err),
 		}
 	}
 	if health.Status != "" && !strings.EqualFold(health.Status, "ok") {
 		return ServiceHealthStatus{
-			Error: fmt.Sprintf("worktree-manager health returned status %q", health.Status),
+			Error: fmt.Sprintf("workspace-manager health returned status %q", health.Status),
 		}
 	}
 
 	return ServiceHealthStatus{Healthy: true}
 }
 
-func (c *WorktreeManagerClient) setAuthHeader(req *http.Request) {
+func (c *WorkspaceManagerClient) setAuthHeader(req *http.Request) {
 	if c.password == "" {
 		return
 	}
@@ -178,18 +179,23 @@ func (c *WorktreeManagerClient) setAuthHeader(req *http.Request) {
 	req.Header.Set("Authorization", "Basic "+auth)
 }
 
-// buildWorktreeCreateRequest maps a bridge task into the companion service request.
-func buildWorktreeCreateRequest(task TaskContext) (WorktreeCreateRequest, error) {
-	branch := getWorktreeBranch(task)
+// buildWorkspaceCreateRequest maps a bridge task into the companion service request.
+func buildWorkspaceCreateRequest(task TaskContext) (WorkspaceCreateRequest, error) {
+	branch := getManagedWorkspaceBranch(task)
+	repoURL := strings.TrimSpace(task.RepoURL)
+	if repoURL == "" {
+		return WorkspaceCreateRequest{}, fmt.Errorf("missing repository clone URL for workspace creation")
+	}
 
 	if isPRScopedTask(task) {
 		if strings.TrimSpace(task.Branch) == "" {
-			return WorktreeCreateRequest{}, fmt.Errorf("missing PR head branch for worktree creation")
+			return WorkspaceCreateRequest{}, fmt.Errorf("missing PR head branch for workspace creation")
 		}
 
-		return WorktreeCreateRequest{
+		return WorkspaceCreateRequest{
 			Owner:   task.RepoOwner,
 			Repo:    task.RepoName,
+			RepoURL: repoURL,
 			Kind:    "pr_review",
 			Number:  task.IssueNumber,
 			Branch:  branch,
@@ -199,12 +205,13 @@ func buildWorktreeCreateRequest(task TaskContext) (WorktreeCreateRequest, error)
 	}
 
 	if strings.TrimSpace(task.DefaultBranch) == "" {
-		return WorktreeCreateRequest{}, fmt.Errorf("missing default branch for issue worktree creation")
+		return WorkspaceCreateRequest{}, fmt.Errorf("missing default branch for issue workspace creation")
 	}
 
-	return WorktreeCreateRequest{
+	return WorkspaceCreateRequest{
 		Owner:   task.RepoOwner,
 		Repo:    task.RepoName,
+		RepoURL: repoURL,
 		Kind:    "issue",
 		Number:  task.IssueNumber,
 		Branch:  branch,
@@ -212,15 +219,15 @@ func buildWorktreeCreateRequest(task TaskContext) (WorktreeCreateRequest, error)
 	}, nil
 }
 
-// getWorktreeBranch generates the managed worktree branch name for a task.
-func getWorktreeBranch(task TaskContext) string {
+// getManagedWorkspaceBranch generates the managed workspace branch name for a task.
+func getManagedWorkspaceBranch(task TaskContext) string {
 	if isPRScopedTask(task) {
 		return fmt.Sprintf("pr-%d", task.IssueNumber)
 	}
 	return fmt.Sprintf("issue-%d", task.IssueNumber)
 }
 
-// isPRScopedTask returns true for tasks that should use the PR worktree shape.
+// isPRScopedTask returns true for tasks that should use the PR workspace shape.
 func isPRScopedTask(task TaskContext) bool {
 	switch task.EventType {
 	case "pull_request", "pr_comment", "pr_review":

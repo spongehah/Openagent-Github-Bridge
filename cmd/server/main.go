@@ -56,10 +56,10 @@ func main() {
 		for repo := range cfg.Repositories {
 			owner, name, _ := strings.Cut(repo, "/")
 			repoCfg := cfg.GetOpenCodeConfigForRepo(owner, name)
-			log.Printf("  - %s -> opencode=%s worktree-manager=%s", repo, repoCfg.Host, repoCfg.WorktreeManagerHost)
+			log.Printf("  - %s -> opencode=%s workspace-manager=%s", repo, repoCfg.Host, repoCfg.WorkspaceManagerHost)
 		}
 	} else {
-		log.Printf("Single-repo mode: opencode=%s worktree-manager=%s", cfg.OpenCode.Host, cfg.OpenCode.WorktreeManagerHost)
+		log.Printf("Single-repo mode: opencode=%s workspace-manager=%s", cfg.OpenCode.Host, cfg.OpenCode.WorkspaceManagerHost)
 	}
 
 	// Initialize bridge service (fire-and-forget pattern)
@@ -69,6 +69,7 @@ func main() {
 		cfg.Trigger,
 		cfg.Features,
 	)
+	bridgeService.SetRepositoryCloneURLOverrides(cfg)
 
 	// Start queue workers
 	ctx, cancel := context.WithCancel(context.Background())

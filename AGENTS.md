@@ -67,20 +67,20 @@ features:
 - [ ] 如果有动作，添加对应的 `enabled` 配置
 - [ ] 如果只是数据收集/日志，不需要配置
 
-### 3. Git Worktree 隔离
+### 3. Git Workspace 隔离
 
-**每个 Issue/PR 的工作 Session 应该在独立的 Git Worktree 中。**
+**每个 Issue/PR 的工作 Session 应该在独立的 Git Workspace 中。**
 
-- 下发任务前，Bridge 会指示 Agent 创建 worktree
-- Worktree 分支命名：`issue-{number}` 或 `pr-{number}`
+- 下发任务前，Bridge 会指示 Agent 创建独立 workspace
+- Workspace 分支命名：`issue-{number}` 或 `pr-{number}`
 - 不同 Session 不会相互干扰
 
 ```go
-// 创建 worktree 的流程
-1. Bridge 调用 agent 侧 `worktree-manager` companion service
-2. companion service 创建或复用 git worktree，并返回 `worktreePath`
+// 创建 workspace 的流程
+1. Bridge 调用 agent 侧 `workspace-manager` companion service
+2. companion service 以独立 clone 方式创建或复用 workspace，并返回 `worktreePath`
 3. Bridge 创建正式 OpenCode session，绑定到该目录
-4. Bridge 下发任务到该 worktree session
+4. Bridge 下发任务到该 workspace session
 ```
 
 ### 4. Session 管理与复用
@@ -101,8 +101,8 @@ key := SessionKey{Owner: "openagent", Repo: "bridge", Type: "issue", Number: 42}
 // Key: "openagent/bridge/issue/42"
 
 // Session 复用流程
-1. 首次交互：创建新 Session，创建 Worktree，保存 Agent Session ID
-2. 后续交互：复用已有 Agent Session ID，不重新创建 Worktree
+1. 首次交互：创建新 Session，创建 Workspace，保存 Agent Session ID
+2. 后续交互：复用已有 Agent Session ID，不重新创建 Workspace
 3. Session 过期后（默认 24h）：重新创建
 ```
 
@@ -144,10 +144,10 @@ opencode:
 repositories:
   "owner1/repo1":
     opencode_host: "http://localhost:4096"
-    worktree_manager_host: "http://localhost:4081"
+    workspace_manager_host: "http://localhost:4081"
   "owner2/repo2":
     opencode_host: "http://localhost:4097"
-    worktree_manager_host: "http://localhost:4082"
+    workspace_manager_host: "http://localhost:4082"
 ```
 
 **启动 OpenCode 的正确方式：**

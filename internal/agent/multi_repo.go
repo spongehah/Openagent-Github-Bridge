@@ -113,7 +113,7 @@ func (m *MultiRepoOpenCodeAdapter) HealthStatus(ctx context.Context) HealthRepor
 				OpenCode: ServiceHealthStatus{
 					Error: "invalid repository key",
 				},
-				WorktreeManager: ServiceHealthStatus{
+				WorkspaceManager: ServiceHealthStatus{
 					Error: "invalid repository key",
 				},
 			}

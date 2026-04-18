@@ -13,6 +13,8 @@ import (
 	"github.com/openagent/github-bridge/internal/session"
 )
 
+const defaultRepoCloneURLKey = "__default__"
+
 // BridgeService orchestrates the dispatching of GitHub events to AI agents.
 // It follows a fire-and-forget pattern: dispatch task and return immediately.
 // The agent (e.g., OpenCode) handles execution and GitHub feedback.
@@ -22,6 +24,7 @@ type BridgeService struct {
 	triggerConfig  config.TriggerConfig
 	featuresConfig config.FeaturesConfig
 	promptBuilder  *PromptBuilder
+	repoCloneURLs  map[string]string
 }
 
 // NewBridgeService creates a new bridge service.
@@ -38,6 +41,24 @@ func NewBridgeService(
 		featuresConfig: fc,
 		promptBuilder:  NewPromptBuilder(fc.AIFix.Labels, fc.AIFix.PlanLabels, fc.AIFix.CommentCommands),
 	}
+}
+
+// SetRepositoryCloneURLOverrides configures per-repository clone URL overrides.
+func (s *BridgeService) SetRepositoryCloneURLOverrides(cfg *config.Config) {
+	if s == nil || cfg == nil {
+		return
+	}
+
+	overrides := make(map[string]string)
+	for repoKey, repoCfg := range cfg.Repositories {
+		if cloneURL := strings.TrimSpace(repoCfg.CloneURL); cloneURL != "" {
+			overrides[repoKey] = cloneURL
+		}
+	}
+	if cloneURL := strings.TrimSpace(cfg.OpenCode.CloneURL); cloneURL != "" {
+		overrides[defaultRepoCloneURLKey] = cloneURL
+	}
+	s.repoCloneURLs = overrides
 }
 
 // Process handles a task from the queue.
@@ -83,6 +104,7 @@ func (s *BridgeService) Process(ctx context.Context, task *queue.Task) error {
 
 	// Build prompt for the agent
 	prompt := s.promptBuilder.Build(processedTask, sess, isNew)
+	repoURL := s.resolveRepoURL(processedTask.Owner, processedTask.Repo, processedTask.RepoURL)
 
 	// Build task context
 	// If session already has an agent session ID, pass it for reuse
@@ -90,7 +112,7 @@ func (s *BridgeService) Process(ctx context.Context, task *queue.Task) error {
 		SessionKey:     sessionKey.String(),
 		AgentSessionID: sess.AgentSessionID, // Reuse existing agent session if available
 		AgentName:      s.getTaskAgentName(processedTask),
-		RepoURL:        processedTask.RepoURL,
+		RepoURL:        repoURL,
 		RepoOwner:      processedTask.Owner,
 		RepoName:       processedTask.Repo,
 		Branch:         processedTask.Branch,
@@ -133,6 +155,21 @@ func (s *BridgeService) Process(ctx context.Context, task *queue.Task) error {
 
 	log.Printf("[Bridge] Task %s dispatched successfully (agent task ID: %s)", task.ID, result.TaskID)
 	return nil
+}
+
+func (s *BridgeService) resolveRepoURL(owner, repo, fallback string) string {
+	if s == nil {
+		return strings.TrimSpace(fallback)
+	}
+
+	repoKey := owner + "/" + repo
+	if cloneURL, ok := s.repoCloneURLs[repoKey]; ok && strings.TrimSpace(cloneURL) != "" {
+		return strings.TrimSpace(cloneURL)
+	}
+	if cloneURL, ok := s.repoCloneURLs[defaultRepoCloneURLKey]; ok && strings.TrimSpace(cloneURL) != "" {
+		return strings.TrimSpace(cloneURL)
+	}
+	return strings.TrimSpace(fallback)
 }
 
 // shouldProcess determines if a task should be processed based on trigger config.

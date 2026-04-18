@@ -6,7 +6,7 @@
 // Architecture:
 // - Bridge receives GitHub webhooks
 // - Tasks are dispatched to Agent (fire-and-forget)
-// - Agent creates isolated worktree per issue/PR
+// - Agent creates isolated workspace per issue/PR
 // - Agent executes task and creates PR independently
 //
 // References:

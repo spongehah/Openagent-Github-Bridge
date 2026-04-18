@@ -458,7 +458,7 @@ func TestProcessMentionWithoutClearReusesExistingSession(t *testing.T) {
 	svc := NewBridgeService(
 		manager,
 		agentStub,
-		config.TriggerConfig{Prefix: "@ogb-bot"},
+		config.TriggerConfig{Prefix: "@ogb-bot", RespondAllIssues: true},
 		config.FeaturesConfig{},
 	)
 
@@ -489,6 +489,52 @@ func TestProcessMentionWithoutClearReusesExistingSession(t *testing.T) {
 	}
 	if agentStub.lastTask.AgentSessionID != "existing-agent-session" {
 		t.Fatalf("expected existing agent session to be reused, got %q", agentStub.lastTask.AgentSessionID)
+	}
+}
+
+func TestProcessUsesConfiguredCloneURLOverride(t *testing.T) {
+	t.Parallel()
+
+	manager := newFakeSessionManager()
+	agentStub := &fakeAgent{
+		result: &agent.DispatchResult{Dispatched: true, TaskID: "agent-session-new"},
+	}
+	svc := NewBridgeService(
+		manager,
+		agentStub,
+		config.TriggerConfig{Prefix: "@ogb-bot", RespondAllIssues: true},
+		config.FeaturesConfig{},
+	)
+	svc.SetRepositoryCloneURLOverrides(&config.Config{
+		OpenCode: config.OpenCodeConfig{
+			CloneURL: "ssh://default/repo.git",
+		},
+		Repositories: map[string]config.RepositoryConfig{
+			"openagent/github-bridge": {
+				CloneURL: "git@github.com:openagent/github-bridge.git",
+			},
+		},
+	})
+
+	err := svc.Process(context.Background(), &queue.Task{
+		ID:        "task-override",
+		Type:      queue.TaskTypeIssue,
+		Action:    "opened",
+		Owner:     "openagent",
+		Repo:      "github-bridge",
+		Number:    7,
+		Title:     "Use configured clone URL",
+		IssueBody: "Issue body",
+		RepoURL:   "https://github.com/openagent/github-bridge.git",
+		Branch:    "main",
+		Sender:    "alice",
+	})
+	if err != nil {
+		t.Fatalf("Process returned error: %v", err)
+	}
+
+	if agentStub.lastTask.RepoURL != "git@github.com:openagent/github-bridge.git" {
+		t.Fatalf("expected configured clone URL override, got %q", agentStub.lastTask.RepoURL)
 	}
 }
 

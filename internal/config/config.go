@@ -26,12 +26,13 @@ type Config struct {
 // RepositoryConfig holds OpenCode configuration for a specific repository.
 // Used in multi-repo mode where each repo has its own OpenCode instance.
 type RepositoryConfig struct {
-	OpenCodeHost            string `mapstructure:"opencode_host"`             // OpenCode server URL for this repo
-	OpenCodeUsername        string `mapstructure:"opencode_username"`         // HTTP Basic Auth username (optional)
-	OpenCodePassword        string `mapstructure:"opencode_password"`         // HTTP Basic Auth password (optional)
-	WorktreeManagerHost     string `mapstructure:"worktree_manager_host"`     // Companion worktree-manager URL for this repo
-	WorktreeManagerUsername string `mapstructure:"worktree_manager_username"` // HTTP Basic Auth username (optional)
-	WorktreeManagerPassword string `mapstructure:"worktree_manager_password"` // HTTP Basic Auth password (optional)
+	OpenCodeHost             string `mapstructure:"opencode_host"`              // OpenCode server URL for this repo
+	OpenCodeUsername         string `mapstructure:"opencode_username"`          // HTTP Basic Auth username (optional)
+	OpenCodePassword         string `mapstructure:"opencode_password"`          // HTTP Basic Auth password (optional)
+	CloneURL                 string `mapstructure:"clone_url"`                  // Optional clone URL override used by workspace-manager requests
+	WorkspaceManagerHost     string `mapstructure:"workspace_manager_host"`     // Companion workspace-manager URL for this repo
+	WorkspaceManagerUsername string `mapstructure:"workspace_manager_username"` // HTTP Basic Auth username (optional)
+	WorkspaceManagerPassword string `mapstructure:"workspace_manager_password"` // HTTP Basic Auth password (optional)
 }
 
 // GetOpenCodeConfigForRepo returns the OpenCode configuration for a specific repository.
@@ -51,14 +52,14 @@ func (c *Config) GetOpenCodeConfigForRepo(owner, repo string) OpenCodeConfig {
 		if repoConfig.OpenCodePassword != "" {
 			cfg.Password = repoConfig.OpenCodePassword
 		}
-		if repoConfig.WorktreeManagerHost != "" {
-			cfg.WorktreeManagerHost = repoConfig.WorktreeManagerHost
+		if repoConfig.WorkspaceManagerHost != "" {
+			cfg.WorkspaceManagerHost = repoConfig.WorkspaceManagerHost
 		}
-		if repoConfig.WorktreeManagerUsername != "" {
-			cfg.WorktreeManagerUsername = repoConfig.WorktreeManagerUsername
+		if repoConfig.WorkspaceManagerUsername != "" {
+			cfg.WorkspaceManagerUsername = repoConfig.WorkspaceManagerUsername
 		}
-		if repoConfig.WorktreeManagerPassword != "" {
-			cfg.WorktreeManagerPassword = repoConfig.WorktreeManagerPassword
+		if repoConfig.WorkspaceManagerPassword != "" {
+			cfg.WorkspaceManagerPassword = repoConfig.WorkspaceManagerPassword
 		}
 		return cfg
 	}
@@ -111,14 +112,15 @@ type GitHubConfig struct {
 // OpenCodeConfig holds OpenCode API configuration.
 // Reference: https://open-code.ai/docs/en/server#authentication
 type OpenCodeConfig struct {
-	Host                    string        `mapstructure:"host"`
-	Username                string        `mapstructure:"username"` // HTTP Basic Auth username (default: "opencode")
-	Password                string        `mapstructure:"password"` // HTTP Basic Auth password (optional, set via OPENCODE_SERVER_PASSWORD)
-	DefaultModel            string        `mapstructure:"default_model"`
-	Timeout                 time.Duration `mapstructure:"timeout"`
-	WorktreeManagerHost     string        `mapstructure:"worktree_manager_host"`     // Companion worktree-manager URL
-	WorktreeManagerUsername string        `mapstructure:"worktree_manager_username"` // Companion worktree-manager HTTP Basic Auth username
-	WorktreeManagerPassword string        `mapstructure:"worktree_manager_password"` // Companion worktree-manager HTTP Basic Auth password
+	Host                     string        `mapstructure:"host"`
+	Username                 string        `mapstructure:"username"`  // HTTP Basic Auth username (default: "opencode")
+	Password                 string        `mapstructure:"password"`  // HTTP Basic Auth password (optional, set via OPENCODE_SERVER_PASSWORD)
+	CloneURL                 string        `mapstructure:"clone_url"` // Optional default clone URL override used by workspace-manager requests
+	DefaultModel             string        `mapstructure:"default_model"`
+	Timeout                  time.Duration `mapstructure:"timeout"`
+	WorkspaceManagerHost     string        `mapstructure:"workspace_manager_host"`     // Companion workspace-manager URL
+	WorkspaceManagerUsername string        `mapstructure:"workspace_manager_username"` // Companion workspace-manager HTTP Basic Auth username
+	WorkspaceManagerPassword string        `mapstructure:"workspace_manager_password"` // Companion workspace-manager HTTP Basic Auth password
 }
 
 // QueueConfig holds task queue configuration.
@@ -218,9 +220,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("opencode.password", "")                  // Empty = no auth
 	v.SetDefault("opencode.default_model", "anthropic/claude-sonnet-4-20250514")
 	v.SetDefault("opencode.timeout", "120s")
-	v.SetDefault("opencode.worktree_manager_host", "http://localhost:4081")
-	v.SetDefault("opencode.worktree_manager_username", "worktree-manager")
-	v.SetDefault("opencode.worktree_manager_password", "")
+	v.SetDefault("opencode.workspace_manager_host", "http://localhost:4081")
+	v.SetDefault("opencode.workspace_manager_username", "workspace-manager")
+	v.SetDefault("opencode.workspace_manager_password", "")
 
 	// Queue defaults
 	v.SetDefault("queue.workers", 5)
@@ -273,10 +275,11 @@ func bindEnvVars(v *viper.Viper) {
 	_ = v.BindEnv("opencode.host", "OPENCODE_HOST")
 	_ = v.BindEnv("opencode.username", "OPENCODE_SERVER_USERNAME")
 	_ = v.BindEnv("opencode.password", "OPENCODE_SERVER_PASSWORD")
+	_ = v.BindEnv("opencode.clone_url", "OPENCODE_CLONE_URL")
 	_ = v.BindEnv("opencode.default_model", "OPENCODE_DEFAULT_MODEL")
-	_ = v.BindEnv("opencode.worktree_manager_host", "WORKTREE_MANAGER_HOST")
-	_ = v.BindEnv("opencode.worktree_manager_username", "WORKTREE_MANAGER_USERNAME")
-	_ = v.BindEnv("opencode.worktree_manager_password", "WORKTREE_MANAGER_PASSWORD")
+	_ = v.BindEnv("opencode.workspace_manager_host", "WORKSPACE_MANAGER_HOST")
+	_ = v.BindEnv("opencode.workspace_manager_username", "WORKSPACE_MANAGER_USERNAME")
+	_ = v.BindEnv("opencode.workspace_manager_password", "WORKSPACE_MANAGER_PASSWORD")
 
 	// Redis
 	_ = v.BindEnv("session.storage", "SESSION_STORAGE")
@@ -284,6 +287,21 @@ func bindEnvVars(v *viper.Viper) {
 	_ = v.BindEnv("session.redis.addr", "REDIS_ADDR")
 	_ = v.BindEnv("session.redis.password", "REDIS_PASSWORD")
 	_ = v.BindEnv("session.redis.db", "REDIS_DB")
+}
+
+// GetRepositoryCloneURL returns the configured clone URL override for a repo.
+// Falls back to the default OpenCode clone URL, then the provided fallback.
+func (c *Config) GetRepositoryCloneURL(owner, repo, fallback string) string {
+	repoKey := owner + "/" + repo
+	if repoConfig, exists := c.Repositories[repoKey]; exists {
+		if strings.TrimSpace(repoConfig.CloneURL) != "" {
+			return strings.TrimSpace(repoConfig.CloneURL)
+		}
+	}
+	if strings.TrimSpace(c.OpenCode.CloneURL) != "" {
+		return strings.TrimSpace(c.OpenCode.CloneURL)
+	}
+	return strings.TrimSpace(fallback)
 }
 
 // Validate checks if required configuration fields are set.

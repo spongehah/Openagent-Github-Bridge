@@ -38,36 +38,40 @@ func jsonResponse(status int, body any) *http.Response {
 	}
 }
 
-func newTestAdapter(model string, openCodeTransport, worktreeTransport roundTripperFunc) *OpenCodeAdapter {
+func newTestAdapter(model string, openCodeTransport, workspaceTransport roundTripperFunc) *OpenCodeAdapter {
 	return &OpenCodeAdapter{
 		client: opencode.NewClient(
 			option.WithBaseURL("http://opencode.local"),
 			option.WithHTTPClient(&http.Client{Transport: openCodeTransport}),
 		),
 		model: parseOpenCodeModel(model),
-		worktreeManager: &WorktreeManagerClient{
-			baseURL:    "http://worktree.local",
-			httpClient: &http.Client{Transport: worktreeTransport},
+		workspaceManager: &WorkspaceManagerClient{
+			baseURL:    "http://workspace.local",
+			httpClient: &http.Client{Transport: workspaceTransport},
 		},
 	}
 }
 
-func TestBuildWorktreeCreateRequestForIssue(t *testing.T) {
+func TestBuildWorkspaceCreateRequestForIssue(t *testing.T) {
 	t.Parallel()
 
-	args, err := buildWorktreeCreateRequest(TaskContext{
+	args, err := buildWorkspaceCreateRequest(TaskContext{
 		RepoOwner:     "openagent",
 		RepoName:      "github-bridge",
+		RepoURL:       "git@github.com:openagent/github-bridge.git",
 		EventType:     "issue",
 		IssueNumber:   42,
 		DefaultBranch: "main",
 	})
 	if err != nil {
-		t.Fatalf("buildWorktreeCreateRequest returned error: %v", err)
+		t.Fatalf("buildWorkspaceCreateRequest returned error: %v", err)
 	}
 
 	if args.Kind != "issue" {
 		t.Fatalf("expected issue kind, got %q", args.Kind)
+	}
+	if args.RepoURL != "git@github.com:openagent/github-bridge.git" {
+		t.Fatalf("expected repo URL to be preserved, got %q", args.RepoURL)
 	}
 	if args.Branch != "issue-42" {
 		t.Fatalf("expected issue branch, got %q", args.Branch)
@@ -80,23 +84,27 @@ func TestBuildWorktreeCreateRequestForIssue(t *testing.T) {
 	}
 }
 
-func TestBuildWorktreeCreateRequestForPR(t *testing.T) {
+func TestBuildWorkspaceCreateRequestForPR(t *testing.T) {
 	t.Parallel()
 
-	args, err := buildWorktreeCreateRequest(TaskContext{
+	args, err := buildWorkspaceCreateRequest(TaskContext{
 		RepoOwner:   "openagent",
 		RepoName:    "github-bridge",
+		RepoURL:     "git@github.com:openagent/github-bridge.git",
 		EventType:   "pr_review",
 		IssueNumber: 128,
 		Branch:      "feature/smaller-worktree",
 		HeadSHA:     "abc123",
 	})
 	if err != nil {
-		t.Fatalf("buildWorktreeCreateRequest returned error: %v", err)
+		t.Fatalf("buildWorkspaceCreateRequest returned error: %v", err)
 	}
 
 	if args.Kind != "pr_review" {
 		t.Fatalf("expected pr_review kind, got %q", args.Kind)
+	}
+	if args.RepoURL != "git@github.com:openagent/github-bridge.git" {
+		t.Fatalf("expected repo URL to be preserved, got %q", args.RepoURL)
 	}
 	if args.Branch != "pr-128" {
 		t.Fatalf("expected PR branch, got %q", args.Branch)
@@ -124,8 +132,8 @@ func TestOpenCodeAdapterDispatchTaskReusesSession(t *testing.T) {
 
 	ctx := context.Background()
 
-	worktreeTransport := roundTripperFunc(func(w *http.Request) (*http.Response, error) {
-		t.Fatalf("worktree manager should not be called when reusing a session")
+	workspaceTransport := roundTripperFunc(func(w *http.Request) (*http.Response, error) {
+		t.Fatalf("workspace manager should not be called when reusing a session")
 		return nil, nil
 	})
 
@@ -161,7 +169,7 @@ func TestOpenCodeAdapterDispatchTaskReusesSession(t *testing.T) {
 		}, nil
 	})
 
-	adapter := newTestAdapter("", openCodeTransport, worktreeTransport)
+	adapter := newTestAdapter("", openCodeTransport, workspaceTransport)
 
 	result, err := adapter.DispatchTask(ctx, TaskContext{
 		AgentSessionID: "session-456",
@@ -183,24 +191,27 @@ func TestOpenCodeAdapterDispatchTaskReusesSession(t *testing.T) {
 	}
 }
 
-func TestOpenCodeAdapterDispatchTaskRefreshesPRWorktreeWhenReusingSession(t *testing.T) {
+func TestOpenCodeAdapterDispatchTaskRefreshesPRWorkspaceWhenReusingSession(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 
-	var worktreeChecked bool
-	worktreeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/worktrees/create-or-reuse" {
-			t.Fatalf("unexpected worktree request: %s %s", r.Method, r.URL.Path)
+	var workspaceChecked bool
+	workspaceTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/workspaces/create-or-reuse" {
+			t.Fatalf("unexpected workspace request: %s %s", r.Method, r.URL.Path)
 		}
 
-		var req WorktreeCreateRequest
+		var req WorkspaceCreateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatalf("decode worktree request: %v", err)
+			t.Fatalf("decode workspace request: %v", err)
 		}
 
 		if req.Kind != "pr_review" {
-			t.Fatalf("expected pr_review worktree kind, got %q", req.Kind)
+			t.Fatalf("expected pr_review workspace kind, got %q", req.Kind)
+		}
+		if req.RepoURL != "git@github.com:openagent/github-bridge.git" {
+			t.Fatalf("expected repo URL in workspace request, got %q", req.RepoURL)
 		}
 		if req.Branch != "pr-42" {
 			t.Fatalf("expected managed PR branch, got %q", req.Branch)
@@ -212,8 +223,8 @@ func TestOpenCodeAdapterDispatchTaskRefreshesPRWorktreeWhenReusingSession(t *tes
 			t.Fatalf("expected latest head sha, got %q", req.HeadSHA)
 		}
 
-		worktreeChecked = true
-		return jsonResponse(http.StatusOK, WorktreeResult{
+		workspaceChecked = true
+		return jsonResponse(http.StatusOK, WorkspaceResult{
 			WorktreePath: "/tmp/worktrees/pr-42",
 			Reused:       true,
 		}), nil
@@ -251,12 +262,13 @@ func TestOpenCodeAdapterDispatchTaskRefreshesPRWorktreeWhenReusingSession(t *tes
 		}, nil
 	})
 
-	adapter := newTestAdapter("", openCodeTransport, worktreeTransport)
+	adapter := newTestAdapter("", openCodeTransport, workspaceTransport)
 
 	result, err := adapter.DispatchTask(ctx, TaskContext{
 		AgentSessionID: "session-456",
 		RepoOwner:      "openagent",
 		RepoName:       "github-bridge",
+		RepoURL:        "git@github.com:openagent/github-bridge.git",
 		IssueNumber:    42,
 		Branch:         "feature/latest-head",
 		HeadSHA:        "deadbeef",
@@ -271,8 +283,8 @@ func TestOpenCodeAdapterDispatchTaskRefreshesPRWorktreeWhenReusingSession(t *tes
 	if !result.Dispatched || result.TaskID != "session-456" {
 		t.Fatalf("unexpected dispatch result: %#v", result)
 	}
-	if !worktreeChecked {
-		t.Fatalf("expected PR worktree refresh before reusing session")
+	if !workspaceChecked {
+		t.Fatalf("expected PR workspace refresh before reusing session")
 	}
 	if !promptChecked {
 		t.Fatalf("expected prompt request to be sent")
@@ -283,8 +295,8 @@ func TestDispatchTaskSendsRawTaskPrompt(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	worktreeTransport := roundTripperFunc(func(w *http.Request) (*http.Response, error) {
-		t.Fatalf("worktree manager should not be called when reusing a session")
+	workspaceTransport := roundTripperFunc(func(w *http.Request) (*http.Response, error) {
+		t.Fatalf("workspace manager should not be called when reusing a session")
 		return nil, nil
 	})
 
@@ -314,7 +326,7 @@ func TestDispatchTaskSendsRawTaskPrompt(t *testing.T) {
 		}, nil
 	})
 
-	adapter := newTestAdapter("", openCodeTransport, worktreeTransport)
+	adapter := newTestAdapter("", openCodeTransport, workspaceTransport)
 	result, err := adapter.DispatchTask(ctx, TaskContext{
 		AgentSessionID: "session-raw",
 		Prompt:         "# Mandatory Execution Requirements\n\nOnly prompt.go should define this content.",
@@ -331,8 +343,8 @@ func TestSendPromptAsyncDoesNotSetNoReply(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	worktreeTransport := roundTripperFunc(func(w *http.Request) (*http.Response, error) {
-		t.Fatalf("worktree manager should not be called when reusing a session")
+	workspaceTransport := roundTripperFunc(func(w *http.Request) (*http.Response, error) {
+		t.Fatalf("workspace manager should not be called when reusing a session")
 		return nil, nil
 	})
 
@@ -355,7 +367,7 @@ func TestSendPromptAsyncDoesNotSetNoReply(t *testing.T) {
 		}, nil
 	})
 
-	adapter := newTestAdapter("", openCodeTransport, worktreeTransport)
+	adapter := newTestAdapter("", openCodeTransport, workspaceTransport)
 	if err := adapter.sendPromptAsync(ctx, "session-async", "Plan the fix", ""); err != nil {
 		t.Fatalf("sendPromptAsync returned error: %v", err)
 	}
@@ -365,8 +377,8 @@ func TestSendPromptAsyncIncludesAgentOverride(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	worktreeTransport := roundTripperFunc(func(w *http.Request) (*http.Response, error) {
-		t.Fatalf("worktree manager should not be called when reusing a session")
+	workspaceTransport := roundTripperFunc(func(w *http.Request) (*http.Response, error) {
+		t.Fatalf("workspace manager should not be called when reusing a session")
 		return nil, nil
 	})
 
@@ -389,7 +401,7 @@ func TestSendPromptAsyncIncludesAgentOverride(t *testing.T) {
 		}, nil
 	})
 
-	adapter := newTestAdapter("", openCodeTransport, worktreeTransport)
+	adapter := newTestAdapter("", openCodeTransport, workspaceTransport)
 	if err := adapter.sendPromptAsync(ctx, "session-plan", "Plan the fix", "plan"); err != nil {
 		t.Fatalf("sendPromptAsync returned error: %v", err)
 	}
@@ -401,9 +413,9 @@ func TestOpenCodeAdapterHealthStatusUsesSDKAndAuthHeader(t *testing.T) {
 	ctx := context.Background()
 	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("sdk-user:secret"))
 
-	worktreeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+	workspaceTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/health" {
-			t.Fatalf("unexpected worktree health path: %s", r.URL.Path)
+			t.Fatalf("unexpected workspace health path: %s", r.URL.Path)
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -434,9 +446,9 @@ func TestOpenCodeAdapterHealthStatusUsesSDKAndAuthHeader(t *testing.T) {
 		option.WithHeader("Authorization", expectedAuth),
 		option.WithHTTPClient(&http.Client{Transport: openCodeTransport}),
 	)
-	adapter.worktreeManager = &WorktreeManagerClient{
-		baseURL:    "http://worktree.local",
-		httpClient: &http.Client{Transport: worktreeTransport},
+	adapter.workspaceManager = &WorkspaceManagerClient{
+		baseURL:    "http://workspace.local",
+		httpClient: &http.Client{Transport: workspaceTransport},
 	}
 
 	report := adapter.HealthStatus(ctx)
@@ -454,8 +466,8 @@ func TestOpenCodeAdapterHealthStatusUsesSDKAndAuthHeader(t *testing.T) {
 	if repositoryStatus.OpenCode.Version != "1.0.0" {
 		t.Fatalf("expected OpenCode version to be reported, got %#v", repositoryStatus.OpenCode)
 	}
-	if !repositoryStatus.WorktreeManager.Healthy {
-		t.Fatalf("expected worktree-manager to be healthy, got %#v", repositoryStatus.WorktreeManager)
+	if !repositoryStatus.WorkspaceManager.Healthy {
+		t.Fatalf("expected workspace-manager to be healthy, got %#v", repositoryStatus.WorkspaceManager)
 	}
 
 	if err := adapter.HealthCheck(ctx); err != nil {
@@ -468,12 +480,12 @@ func TestOpenCodeAdapterHealthStatusIncludesDependencyFailures(t *testing.T) {
 
 	ctx := context.Background()
 
-	worktreeTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+	workspaceTransport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/health" {
-			t.Fatalf("unexpected worktree health path: %s", r.URL.Path)
+			t.Fatalf("unexpected workspace health path: %s", r.URL.Path)
 		}
 		return jsonResponse(http.StatusServiceUnavailable, map[string]any{
-			"error": "worktree down",
+			"error": "workspace down",
 		}), nil
 	})
 
@@ -487,7 +499,7 @@ func TestOpenCodeAdapterHealthStatusIncludesDependencyFailures(t *testing.T) {
 		}), nil
 	})
 
-	adapter := newTestAdapter("", openCodeTransport, worktreeTransport)
+	adapter := newTestAdapter("", openCodeTransport, workspaceTransport)
 
 	report := adapter.HealthStatus(ctx)
 	if report.Healthy {
@@ -501,8 +513,8 @@ func TestOpenCodeAdapterHealthStatusIncludesDependencyFailures(t *testing.T) {
 	if repositoryStatus.OpenCode.Error != "health check returned unhealthy response" {
 		t.Fatalf("unexpected OpenCode error: %#v", repositoryStatus.OpenCode)
 	}
-	if !strings.Contains(repositoryStatus.WorktreeManager.Error, "worktree-manager health returned status 503") {
-		t.Fatalf("unexpected worktree-manager error: %#v", repositoryStatus.WorktreeManager)
+	if !strings.Contains(repositoryStatus.WorkspaceManager.Error, "workspace-manager health returned status 503") {
+		t.Fatalf("unexpected workspace-manager error: %#v", repositoryStatus.WorkspaceManager)
 	}
 
 	if err := adapter.HealthCheck(ctx); err == nil {

@@ -26,15 +26,15 @@ const defaultOpenCodeTimeout = 30 * time.Second
 //
 // It dispatches tasks to OpenCode and returns immediately (fire-and-forget).
 // OpenCode is responsible for:
-// - Executing the task in an isolated git worktree
+// - Executing the task in an isolated git workspace
 // - Creating PRs or posting comments to GitHub
 // - Managing its own GitHub authentication
 //
 // API Reference: https://opencode.ai/docs/sdk
 type OpenCodeAdapter struct {
-	client          *opencode.Client
-	model           *OpenCodeModel
-	worktreeManager *WorktreeManagerClient
+	client           *opencode.Client
+	model            *OpenCodeModel
+	workspaceManager *WorkspaceManagerClient
 }
 
 // OpenCodeModel represents the configured model used for SDK requests.
@@ -72,9 +72,9 @@ func NewOpenCodeAdapter(cfg config.OpenCodeConfig) *OpenCodeAdapter {
 	}
 
 	return &OpenCodeAdapter{
-		client:          opencode.NewClient(clientOptions...),
-		model:           parseOpenCodeModel(cfg.DefaultModel),
-		worktreeManager: NewWorktreeManagerClient(cfg, timeout),
+		client:           opencode.NewClient(clientOptions...),
+		model:            parseOpenCodeModel(cfg.DefaultModel),
+		workspaceManager: NewWorkspaceManagerClient(cfg, timeout),
 	}
 }
 
@@ -82,7 +82,7 @@ func NewOpenCodeAdapter(cfg config.OpenCodeConfig) *OpenCodeAdapter {
 //
 // Flow:
 // 1. Reuse an existing session OR create a new isolated session for this issue/PR
-// 2. If new session: call the companion worktree-manager service, then create an OpenCode session in that path
+// 2. If new session: call the companion workspace-manager service, then create an OpenCode session in that path
 // 3. Send the task through prompt_async so dispatch remains fire-and-forget
 //
 // Important: OpenCode's Prompt API with NoReply=true is not equivalent to prompt_async.
@@ -93,11 +93,11 @@ func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*
 	worktreePath := ""
 
 	if sessionID != "" && isPRScopedTask(task) {
-		if _, err := a.ensureWorktree(ctx, task); err != nil {
+		if _, err := a.ensureWorkspace(ctx, task); err != nil {
 			return &DispatchResult{
 				Dispatched: false,
 				TaskID:     sessionID,
-				Error:      fmt.Sprintf("failed to refresh PR worktree: %v", err),
+				Error:      fmt.Sprintf("failed to refresh PR workspace: %v", err),
 			}, err
 		}
 		fmt.Printf("[OpenCode] Reusing existing session: %s\n", sessionID)
@@ -105,11 +105,11 @@ func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*
 
 	if sessionID == "" {
 		var err error
-		worktreePath, err = a.ensureWorktree(ctx, task)
+		worktreePath, err = a.ensureWorkspace(ctx, task)
 		if err != nil {
 			return &DispatchResult{
 				Dispatched: false,
-				Error:      fmt.Sprintf("failed to prepare isolated worktree: %v", err),
+				Error:      fmt.Sprintf("failed to prepare isolated workspace: %v", err),
 			}, err
 		}
 
@@ -137,13 +137,13 @@ func (a *OpenCodeAdapter) DispatchTask(ctx context.Context, task TaskContext) (*
 	}, nil
 }
 
-// HealthCheck verifies the OpenCode server and companion worktree service are reachable.
+// HealthCheck verifies the OpenCode server and companion workspace service are reachable.
 // Reference: https://open-code.ai/docs/en/server#global
 func (a *OpenCodeAdapter) HealthCheck(ctx context.Context) error {
 	return a.HealthStatus(ctx).Err()
 }
 
-// HealthStatus returns structured health details for the OpenCode server and worktree manager.
+// HealthStatus returns structured health details for the OpenCode server and workspace manager.
 // Reference: https://open-code.ai/docs/en/server#global
 func (a *OpenCodeAdapter) HealthStatus(ctx context.Context) HealthReport {
 	repositoryStatus := a.repositoryHealthStatus(ctx)
@@ -158,17 +158,17 @@ func (a *OpenCodeAdapter) HealthStatus(ctx context.Context) HealthReport {
 
 func (a *OpenCodeAdapter) repositoryHealthStatus(ctx context.Context) RepositoryHealthStatus {
 	openCodeStatus := a.openCodeHealthStatus(ctx)
-	worktreeStatus := ServiceHealthStatus{
-		Error: "worktree-manager client is not configured",
+	workspaceStatus := ServiceHealthStatus{
+		Error: "workspace-manager client is not configured",
 	}
-	if a.worktreeManager != nil {
-		worktreeStatus = a.worktreeManager.HealthStatus(ctx)
+	if a.workspaceManager != nil {
+		workspaceStatus = a.workspaceManager.HealthStatus(ctx)
 	}
 
 	return RepositoryHealthStatus{
-		Healthy:         openCodeStatus.Healthy && worktreeStatus.Healthy,
-		OpenCode:        openCodeStatus,
-		WorktreeManager: worktreeStatus,
+		Healthy:          openCodeStatus.Healthy && workspaceStatus.Healthy,
+		OpenCode:         openCodeStatus,
+		WorkspaceManager: workspaceStatus,
 	}
 }
 
@@ -193,41 +193,41 @@ func (a *OpenCodeAdapter) openCodeHealthStatus(ctx context.Context) ServiceHealt
 	}
 }
 
-// createIsolatedSession prepares the worktree through the companion service
+// createIsolatedSession prepares the workspace through the companion service
 // and then creates the long-lived OpenCode session inside that directory.
 func (a *OpenCodeAdapter) createIsolatedSession(ctx context.Context, task TaskContext) (*opencode.Session, error) {
-	worktreePath, err := a.ensureWorktree(ctx, task)
+	worktreePath, err := a.ensureWorkspace(ctx, task)
 	if err != nil {
 		return nil, err
 	}
 
 	finalSession, err := a.createSession(ctx, task.SessionKey, worktreePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create final session in worktree %s: %w", worktreePath, err)
+		return nil, fmt.Errorf("failed to create final session in workspace %s: %w", worktreePath, err)
 	}
 
 	return finalSession, nil
 }
 
-func (a *OpenCodeAdapter) ensureWorktree(ctx context.Context, task TaskContext) (string, error) {
-	if a.worktreeManager == nil || a.worktreeManager.baseURL == "" {
-		return "", fmt.Errorf("worktree-manager host is not configured")
+func (a *OpenCodeAdapter) ensureWorkspace(ctx context.Context, task TaskContext) (string, error) {
+	if a.workspaceManager == nil || a.workspaceManager.baseURL == "" {
+		return "", fmt.Errorf("workspace-manager host is not configured")
 	}
 
-	worktreeReq, err := buildWorktreeCreateRequest(task)
+	workspaceReq, err := buildWorkspaceCreateRequest(task)
 	if err != nil {
 		return "", err
 	}
 
-	worktreeResult, err := a.worktreeManager.CreateOrReuse(ctx, worktreeReq)
+	workspaceResult, err := a.workspaceManager.CreateOrReuse(ctx, workspaceReq)
 	if err != nil {
-		return "", fmt.Errorf("failed to create or reuse worktree: %w", err)
+		return "", fmt.Errorf("failed to create or reuse workspace: %w", err)
 	}
-	if strings.TrimSpace(worktreeResult.WorktreePath) == "" {
-		return "", fmt.Errorf("worktree-manager returned an empty worktreePath")
+	if strings.TrimSpace(workspaceResult.WorktreePath) == "" {
+		return "", fmt.Errorf("workspace-manager returned an empty worktreePath")
 	}
 
-	return worktreeResult.WorktreePath, nil
+	return workspaceResult.WorktreePath, nil
 }
 
 // createSession creates a new session in OpenCode with the specified working directory.
