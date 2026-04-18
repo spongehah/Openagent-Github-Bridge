@@ -44,25 +44,7 @@ GitHub Webhook --> Bridge --> OpenCode Agent --> GitHub PR/Comment
 
 **必须在 OpenCode 服务器上完成以下准备：**
 
-#### 1.1 预先 Clone 目标仓库
-
-OpenCode 需要在本地预先 clone 所有需要处理的仓库：
-
-```bash
-# 创建仓库目录（推荐结构）
-mkdir -p ~/repos/{owner}/{repo}
-
-# Clone 仓库
-cd ~/repos/{owner}
-git clone https://github.com/{owner}/{repo}.git
-
-# 示例
-mkdir -p ~/repos/myorg
-cd ~/repos/myorg
-git clone https://github.com/myorg/myapp.git
-```
-
-#### 1.2 配置 GitHub 鉴权
+#### 1.1 配置 GitHub 鉴权
 
 OpenCode 需要能够推送代码和创建 PR，配置方式：
 
@@ -86,7 +68,7 @@ git config --global credential.helper store
 # Password: ghp_xxxx (你的 PAT)
 ```
 
-#### 1.3 启动 OpenCode Server
+#### 1.2 启动 OpenCode Server
 
 **关键：OpenCode 必须在仓库目录中启动**
 
@@ -94,31 +76,33 @@ OpenCode Server 的工作目录就是它能操作的仓库范围。
 
 **单仓库模式：**
 ```bash
-# 进入仓库目录
-cd ~/repos/myorg/myapp
+# 在 $WORKSPACE_MANAGER_ROOT/owner/repo 目录启动
+# 默认 $WORKSPACE_MANAGER_ROOT=~/.opencode/workspaces，可自己修改
+mkdir $WORKSPACE_MANAGER_ROOT/owner/repo
+cd $WORKSPACE_MANAGER_ROOT/owner/repo
 
 # 设置鉴权密码（可选但推荐）
 export OPENCODE_SERVER_PASSWORD="your-secure-password"
 
 # 启动 server 模式
-opencode serve --port 4096
 # 如果想要主动接管任务，启动 web 模式，含有 server 模式的全部功能
+opencode serve --port 4096
 ```
 
 **多仓库模式：为每个仓库启动独立的 OpenCode 实例**
 ```bash
 # 终端 1: 启动 repo1 的 OpenCode
-cd ~/repos/owner1/repo1
+cd $WORKSPACE_MANAGER_ROOT/owner1/repo1
 opencode serve --port 4096
 
 # 终端 2: 启动 repo2 的 OpenCode
-cd ~/repos/owner2/repo2
+cd $WORKSPACE_MANAGER_ROOT/owner2/repo2
 opencode serve --port 4097
 
 # 可使用 systemd 或 supervisor 管理多个实例
 ```
 
-#### 1.3.1 可选安装的 OpenCode Skills 与 OpenCode 配置
+#### 1.2.1 可选安装的 OpenCode Skills 与 OpenCode 配置
 
 本仓库在 `skills/` 下提供了建议安装到 OpenCode 侧的 skill，例如：
 
@@ -127,12 +111,12 @@ Bridge 下发的 prompt 可能会显式要求 Agent 优先调用 `github-progres
 安装：
 ```bash
 cd /path/to/openagent-github-bridge
-ln -sf $(pwd)/skills/* ~/.agents/skills
+ln -sf $(pwd)/skills/* ~/.agents/skills # 软链接
 
-cp opencode.json /path/to/repo
+cp opencode.json /path/to/your/repo # 或将配置自己拷贝到用户配置 ~/.config/opencode/opencode.json 中
 ```
 
-#### 1.4 启动必需的 workspace-manager companion service
+#### 1.3 启动必需的 workspace-manager companion service
 
 **这是必备步骤。**
 
@@ -144,7 +128,7 @@ cp opencode.json /path/to/repo
 plugins/workspace-manager/
 ```
 
-推荐在与 OpenCode 相同的机器上启动。`workspace-manager` 会根据 Bridge 请求里的 `repoURL` 直接从远端 clone，因此多仓库场景通常只需要一个实例。
+在与 OpenCode 相同的机器上启动。`workspace-manager` 会根据 Bridge 请求里的 `repoURL` 直接从远端 clone 仓库到本地。
 
 示例：
 
@@ -152,20 +136,11 @@ plugins/workspace-manager/
 cd /path/to/openagent-github-bridge
 
 export WORKSPACE_MANAGER_ADDR="127.0.0.1:4081"
+export WORKSPACE_MANAGER_ROOT="~/.opencode/workspaces"
 export WORKSPACE_MANAGER_BASE_REMOTE="origin"
 export WORKSPACE_MANAGER_PASSWORD=""
 
 go run ./plugins/workspace-manager
-```
-
-编译运行：
-
-```bash
-go build -o ./bin/workspace-manager ./plugins/workspace-manager
-
-WORKSPACE_MANAGER_ADDR="127.0.0.1:4081" \
-WORKSPACE_MANAGER_BASE_REMOTE="origin" \
-./bin/workspace-manager
 ```
 
 启动后确认服务可用：
@@ -231,7 +206,7 @@ github:
 opencode:
   host: "http://localhost:4096"          # OpenCode server 地址
   password: "your-secure-password"        # 与 OpenCode server 一致（可选）
-  clone_url: ""                           # 可选：默认仓库克隆地址覆盖
+  clone_url: ""                           # 可选：默认仓库克隆地址覆盖，推荐为 SSH URL，否则可能造成克隆失败
   workspace_manager_host: "http://localhost:4081"  # agent 侧 companion service
 
 # 功能开关
