@@ -4,19 +4,9 @@ GitHub Webhook 到自管理 AI coding agent 的桥接服务，基于 OpenCode / 
 
 适合希望把 GitHub 事件自动分发给自托管 AI Agent，并保留模型选择权、工作目录控制权和人工接管能力的团队。
 
-## 相比 Codex / Claude Web 版和 GitHub App 的优势
-
-- **自管理 OpenCode 实例**：Agent 运行在你自己的机器或服务器上，仓库、凭据、运行环境、网络访问策略都由你控制，而不是依赖托管式 Web 工作区或第三方 GitHub App 执行环境。
-- **可切换任意 AI Provider / Model**：底层通过 OpenCode 对接模型，不绑定单一厂商。可以按仓库、任务类型或成本策略自由选择 provider 和 model。
-- **Agent 行为可深度个性化**：你可以自定义 OpenCode 配置、系统提示词、权限策略、技能、工作流和配套服务，而不是受限于固定产品形态。
-- **同 issue/pr 聊天记录继承**：在同一个 issue/pr 中，Agent 的多轮交互会复用同一 Session，保持上下文连续性，而不是每次都从零开始。也可通过 -clear 参数手动重置上下文。
-- **支持随时人工接管**：任务由 Bridge 触发后，仍然可以直接进入 OpenCode Web GUI 接管同一会话和工作目录，继续推进工作，不局限于 GitHub 评论区交互。
-- **不只服务 GitHub 页面内流程**：虽然入口是 GitHub webhook，但 Agent 实际运行在真实仓库工作目录中，可继续做 GitHub 之外的本地调试、脚本执行、文档整理和环境排查。
-- **可通过 VSCode 远程编辑文件**：因为代码就在你自己的机器或远端主机 workspace 里，可以直接用 VSCode Remote 等方式连接并编辑，不需要把修改局限在浏览器对话框或 App 沙箱内。
-- **更适合长期上下文和多轮协作**：同一 Issue / PR 复用 Agent Session，并结合独立 git workspace 隔离上下文，既保留连续性，也避免不同任务互相污染。
-
 ## 功能特性
 
+- **Mention**: Comment 首行以 `@ogb-bot` 提及时，自动触发 AI 进行工作
 - **AI-Fix**: Issue 被打上 `ai-fix` 标签时，自动触发 AI 分析并创建修复 PR
 - **AI-Plan**: Issue 被打上 `ai-plan` 标签时，自动触发 AI 输出实现方案
 - **Slash Coding**: Issue 评论以 `/go` 开头时，自动触发 AI 编码与创建 PR
@@ -24,6 +14,17 @@ GitHub Webhook 到自管理 AI coding agent 的桥接服务，基于 OpenCode / 
 - **Session 复用**: 同一 Issue/PR 的多次交互复用同一 Agent Session，保持上下文
 - **Git Workspace 隔离**: 每个 Issue/PR 在独立的 git workspace 中工作，互不干扰
 - **Fire-and-Forget**: Bridge 只负责下发任务，Agent 独立完成工作
+
+## 相比 Codex / Claude Web 版和 GitHub App 的优势
+
+- **`支持随时人工接管`**：任务由 Bridge 触发后，仍然可以直接进入 OpenCode Web GUI 接管同一会话和工作目录，继续推进工作，不局限于 GitHub 评论区交互。
+- **`可通过 VSCode 远程编辑文件`**：因为代码就在你自己的机器或远端主机 workspace 里，可以直接用 VSCode Remote 等方式连接并编辑，不需要把修改局限在浏览器对话框或 App 沙箱内。(常见于AI无法很好完成工作需要人工介入更改时)
+- **自管理 OpenCode 实例**：Agent 运行在你自己的机器或服务器上，仓库、凭据、运行环境、网络访问策略都由你控制，而不是依赖托管式 Web 工作区或第三方 GitHub App 执行环境。
+- **可切换任意 AI Provider / Model**：底层通过 OpenCode 对接模型，不绑定单一厂商。可以按仓库、任务类型或成本策略自由选择 provider 和 model。
+- **Agent 行为可深度个性化**：你可以自定义 OpenCode 配置、系统提示词、权限策略、技能、工作流和配套服务，而不是受限于固定产品形态。
+- **同 issue/pr 聊天记录继承**：在同一个 issue/pr 中，Agent 的多轮交互会复用同一 Session，保持上下文连续性，而不是每次都从零开始。也可通过 -clear 参数手动重置上下文。
+- **不只服务 GitHub 页面内流程**：虽然入口是 GitHub webhook，但 Agent 实际运行在真实仓库工作目录中，可继续做 GitHub 之外的本地调试、脚本执行、文档整理和环境排查。
+- **更适合长期上下文和多轮协作**：同一 Issue / PR 复用 Agent Session，并结合独立 git workspace 隔离上下文，既保留连续性，也避免不同任务互相污染。
 
 ## 架构概览
 
@@ -44,25 +45,7 @@ GitHub Webhook --> Bridge --> OpenCode Agent --> GitHub PR/Comment
 
 **必须在 OpenCode 服务器上完成以下准备：**
 
-#### 1.1 预先 Clone 目标仓库
-
-OpenCode 需要在本地预先 clone 所有需要处理的仓库：
-
-```bash
-# 创建仓库目录（推荐结构）
-mkdir -p ~/repos/{owner}/{repo}
-
-# Clone 仓库
-cd ~/repos/{owner}
-git clone https://github.com/{owner}/{repo}.git
-
-# 示例
-mkdir -p ~/repos/myorg
-cd ~/repos/myorg
-git clone https://github.com/myorg/myapp.git
-```
-
-#### 1.2 配置 GitHub 鉴权
+#### 1.1 配置 GitHub 鉴权
 
 OpenCode 需要能够推送代码和创建 PR，配置方式：
 
@@ -86,7 +69,7 @@ git config --global credential.helper store
 # Password: ghp_xxxx (你的 PAT)
 ```
 
-#### 1.3 启动 OpenCode Server
+#### 1.2 启动 OpenCode Server
 
 **关键：OpenCode 必须在仓库目录中启动**
 
@@ -94,31 +77,33 @@ OpenCode Server 的工作目录就是它能操作的仓库范围。
 
 **单仓库模式：**
 ```bash
-# 进入仓库目录
-cd ~/repos/myorg/myapp
+# 在 $WORKSPACE_MANAGER_ROOT/owner/repo 目录启动
+# 默认 $WORKSPACE_MANAGER_ROOT=~/.opencode/workspaces，可自己修改
+mkdir $WORKSPACE_MANAGER_ROOT/owner/repo
+cd $WORKSPACE_MANAGER_ROOT/owner/repo
 
 # 设置鉴权密码（可选但推荐）
 export OPENCODE_SERVER_PASSWORD="your-secure-password"
 
 # 启动 server 模式
-opencode serve --port 4096
 # 如果想要主动接管任务，启动 web 模式，含有 server 模式的全部功能
+opencode serve --port 4096
 ```
 
 **多仓库模式：为每个仓库启动独立的 OpenCode 实例**
 ```bash
 # 终端 1: 启动 repo1 的 OpenCode
-cd ~/repos/owner1/repo1
+cd $WORKSPACE_MANAGER_ROOT/owner1/repo1
 opencode serve --port 4096
 
 # 终端 2: 启动 repo2 的 OpenCode
-cd ~/repos/owner2/repo2
+cd $WORKSPACE_MANAGER_ROOT/owner2/repo2
 opencode serve --port 4097
 
 # 可使用 systemd 或 supervisor 管理多个实例
 ```
 
-#### 1.3.1 可选安装的 OpenCode Skills 与 OpenCode 配置
+#### 1.2.1 可选安装的 OpenCode Skills 与 OpenCode 配置
 
 本仓库在 `skills/` 下提供了建议安装到 OpenCode 侧的 skill，例如：
 
@@ -127,12 +112,12 @@ Bridge 下发的 prompt 可能会显式要求 Agent 优先调用 `github-progres
 安装：
 ```bash
 cd /path/to/openagent-github-bridge
-ln -sf $(pwd)/skills/* ~/.agents/skills
+ln -sf $(pwd)/skills/* ~/.agents/skills # 软链接
 
-cp opencode.json /path/to/repo
+cp opencode.json /path/to/your/repo # 或将配置自己拷贝到用户配置 ~/.config/opencode/opencode.json 中
 ```
 
-#### 1.4 启动必需的 workspace-manager companion service
+#### 1.3 启动必需的 workspace-manager companion service
 
 **这是必备步骤。**
 
@@ -144,7 +129,7 @@ cp opencode.json /path/to/repo
 plugins/workspace-manager/
 ```
 
-推荐在与 OpenCode 相同的机器上启动。`workspace-manager` 会根据 Bridge 请求里的 `repoURL` 直接从远端 clone，因此多仓库场景通常只需要一个实例。
+在与 OpenCode 相同的机器上启动。`workspace-manager` 会根据 Bridge 请求里的 `repoURL` 直接从远端 clone 仓库到本地。
 
 示例：
 
@@ -152,20 +137,11 @@ plugins/workspace-manager/
 cd /path/to/openagent-github-bridge
 
 export WORKSPACE_MANAGER_ADDR="127.0.0.1:4081"
+export WORKSPACE_MANAGER_ROOT="~/.opencode/workspaces"
 export WORKSPACE_MANAGER_BASE_REMOTE="origin"
 export WORKSPACE_MANAGER_PASSWORD=""
 
 go run ./plugins/workspace-manager
-```
-
-编译运行：
-
-```bash
-go build -o ./bin/workspace-manager ./plugins/workspace-manager
-
-WORKSPACE_MANAGER_ADDR="127.0.0.1:4081" \
-WORKSPACE_MANAGER_BASE_REMOTE="origin" \
-./bin/workspace-manager
 ```
 
 启动后确认服务可用：
@@ -231,7 +207,7 @@ github:
 opencode:
   host: "http://localhost:4096"          # OpenCode server 地址
   password: "your-secure-password"        # 与 OpenCode server 一致（可选）
-  clone_url: ""                           # 可选：默认仓库克隆地址覆盖
+  clone_url: ""                           # 可选：默认仓库克隆地址覆盖，推荐为 SSH URL，否则可能造成克隆失败
   workspace_manager_host: "http://localhost:4081"  # agent 侧 companion service
 
 # 功能开关
@@ -320,6 +296,13 @@ docker run -d \
   -e WORKSPACE_MANAGER_HOST="http://host.docker.internal:4081" \
   openagent-bridge
 ```
+
+#### 暴露服务
+- 使用 ngrok
+```bash
+ngrok http 7777
+```
+- 部署到服务器
 
 ## 工作流程
 
@@ -427,3 +410,7 @@ docker run -d \
 ## License
 
 MIT
+
+## 友链
+
+- [Linux.do](https://linux.do/)
