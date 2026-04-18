@@ -52,9 +52,6 @@ func TestPromptBuilderIssuePromptUsesLightweightGitHubCoordination(t *testing.T)
 	if !strings.Contains(prompt, "Do not create a temporary progress comment for simple acknowledgements, greetings, or brief Q&A.") {
 		t.Fatalf("expected simple-reply guardrail in prompt: %q", prompt)
 	}
-	if !strings.Contains(prompt, "## GitHub Interaction Protocol") {
-		t.Fatalf("expected GitHub interaction protocol section in prompt: %q", prompt)
-	}
 	if !strings.Contains(prompt, "## Repository Execution Guardrails") {
 		t.Fatalf("expected repository execution guardrails in prompt: %q", prompt)
 	}

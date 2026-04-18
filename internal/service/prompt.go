@@ -320,11 +320,9 @@ func (pb *PromptBuilder) writePromptPrelude(sb *strings.Builder, task *queue.Tas
 func (pb *PromptBuilder) writeExecutionRequirements(sb *strings.Builder) {
 	sb.WriteString("# Mandatory Execution Requirements\n\n")
 	sb.WriteString("- Follow the repository instructions, including `AGENTS.md`.\n")
-	sb.WriteString("- The user is communicating with you through GitHub; keep user-facing feedback on GitHub and let the task prompt define the exact mechanism.\n")
-	sb.WriteString("- You must post at least one user-visible GitHub comment (`gh issue comment` or `gh pr comment`) before finishing the task; never complete the task silently.\n")
-	sb.WriteString("- Write all GitHub-facing user communication in Chinese.\n")
 	sb.WriteString("- Treat the task prompt below as the source of truth for task workflow, skill order, and GitHub-side coordination.\n")
-	sb.WriteString("- When instructions overlap, prefer the more specific task prompt or called skill, and do not repeat the same GitHub action twice.\n\n")
+	sb.WriteString("- When instructions overlap, prefer the more specific task prompt or called skill, and do not repeat the same GitHub action twice.\n")
+	sb.WriteString("- Interaction protocol must be followed\n\n")
 	sb.WriteString("---\n\n")
 }
 
@@ -354,6 +352,23 @@ func (pb *PromptBuilder) writeSkillCoordination(sb *strings.Builder, task *queue
 	}
 	featureSkill := pb.getFeatureSkill(task)
 
+	sb.WriteString("## Interaction Protocol\n\n")
+	sb.WriteString("- The user is interacting with you on GitHub, not in a direct chat session.\n")
+	sb.WriteString("- Send every user-facing progress update, final summary, and blocker notice back through GitHub.\n")
+	sb.WriteString("- Write all GitHub-facing user communication in Chinese.\n")
+	if featureSkill != "" {
+		sb.WriteString(fmt.Sprintf("- Prefer updating the single progress comment managed by `skill %s` instead of posting separate wrap-up comments.\n", githubProgressCommentSkillName))
+	} else {
+		sb.WriteString(fmt.Sprintf("- For quick replies, respond directly in the thread. Only use `skill %s` when the work is substantial enough to need incremental status updates.\n", githubProgressCommentSkillName))
+		sb.WriteString("- Upgrade to progress-comment mode as soon as the task requires substantial code reading, code changes, tests, more than one brief reply, or multi-step status updates.\n")
+	}
+	sb.WriteString("- You must post at least one user-visible GitHub comment (`gh issue comment` or `gh pr comment`) before finishing the task; never complete the task silently.\n")
+	if task.Type == queue.TaskTypePRReview {
+		sb.WriteString("- For PR review tasks, keep status updates in the progress comment and submit the final verdict as a formal GitHub review.\n\n")
+	} else {
+		sb.WriteString("- Use another GitHub surface only when the task explicitly requires it, such as a PR body or PR metadata that links the implementation back to the issue.\n\n")
+	}
+
 	sb.WriteString("## Skill Order\n\n")
 	if featureSkill != "" {
 		sb.WriteString(fmt.Sprintf("1. **First:** call `skill %s` before substantial work so the temporary GitHub comment is created early.\n", githubProgressCommentSkillName))
@@ -364,22 +379,6 @@ func (pb *PromptBuilder) writeSkillCoordination(sb *strings.Builder, task *queue
 		sb.WriteString(fmt.Sprintf("2. **Only if needed:** if this turns into substantial or long-running work, call `skill %s` and keep updating that single progress comment.\n", githubProgressCommentSkillName))
 		sb.WriteString("   Upgrade to progress-comment mode immediately if you need substantial code reading, code changes, tests, more than one brief reply, or multi-step status updates.\n")
 		sb.WriteString("3. **Fallback:** if the skill is unavailable, continue with the explicit instructions in this prompt.\n\n")
-	}
-
-	sb.WriteString("## GitHub Interaction Protocol\n\n")
-	sb.WriteString("- The user is interacting with you on GitHub, not in a direct chat session.\n")
-	sb.WriteString("- Send every user-facing progress update, final summary, and blocker notice back through GitHub.\n")
-	sb.WriteString("- Write all GitHub-facing user communication in Chinese.\n")
-	if featureSkill != "" {
-		sb.WriteString(fmt.Sprintf("- Prefer updating the single progress comment managed by `skill %s` instead of posting separate wrap-up comments.\n", githubProgressCommentSkillName))
-	} else {
-		sb.WriteString(fmt.Sprintf("- For quick replies, respond directly in the thread. Only use `skill %s` when the work is substantial enough to need incremental status updates.\n", githubProgressCommentSkillName))
-		sb.WriteString("- Upgrade to progress-comment mode as soon as the task requires substantial code reading, code changes, tests, more than one brief reply, or multi-step status updates.\n")
-	}
-	if task.Type == queue.TaskTypePRReview {
-		sb.WriteString("- For PR review tasks, keep status updates in the progress comment and submit the final verdict as a formal GitHub review.\n\n")
-	} else {
-		sb.WriteString("- Use another GitHub surface only when the task explicitly requires it, such as a PR body or PR metadata that links the implementation back to the issue.\n\n")
 	}
 
 	sb.WriteString("## Skill Coordination\n\n")
