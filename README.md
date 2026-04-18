@@ -127,7 +127,7 @@ Bridge 下发的 prompt 可能会显式要求 Agent 优先调用 `github-progres
 安装：
 ```bash
 cd /path/to/openagent-github-bridge
-cp -r skills/* ~/.agents/skills/
+ln -sf $(pwd)/skills/* ~/.agents/skills
 
 cp opencode.json /path/to/repo
 ```

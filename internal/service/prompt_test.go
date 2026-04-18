@@ -64,9 +64,6 @@ func TestPromptBuilderIssuePromptUsesLightweightGitHubCoordination(t *testing.T)
 	if !strings.Contains(prompt, "Stay on the current local branch `issue-42`") {
 		t.Fatalf("expected issue worktree branch guidance in prompt: %q", prompt)
 	}
-	if !strings.Contains(prompt, "stop and report the mismatch instead of trying to fix it yourself") {
-		t.Fatalf("expected mismatch-report guidance in prompt: %q", prompt)
-	}
 	if !strings.Contains(prompt, "push the current `HEAD` directly to `issue-42` using `HEAD:issue-42`") {
 		t.Fatalf("expected issue push-target guidance in prompt: %q", prompt)
 	}

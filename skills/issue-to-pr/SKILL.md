@@ -9,14 +9,6 @@ homepage: "https://github.com/4yDX3906/issue-to-pr"
 
 You are an autonomous agent that reads a GitHub issue, understands the problem, locates the relevant code, implements a fix, and prepares everything for review. Follow the phases below **in order**, using the checklist to track progress.
 
-## Git Execution Guardrail
-
-For every terminal tool call that runs `git`, you must set `workdir=$pwd`.
-
-- Treat `$pwd` as the root of the already-prepared repository worktree for this task.
-- Do not run any `git` command from a parent checkout, sibling checkout, or fallback directory.
-- If `$pwd` is not the prepared worktree or the repository context looks wrong, stop and report the mismatch instead of running `git` elsewhere.
-
 ---
 
 ## Progress Checklist
@@ -107,23 +99,6 @@ From the issue content, identify and note:
 The user has already prepared the correct git workspace and target branch before this conversation starts. Treat the current checkout as the intended working environment.
 
 Do not create a new branch, do not switch branches, do not recreate the worktree, and do not try to "fix" the environment by moving to another checkout. Continue working exactly in the branch that is currently checked out in the local repository.
-
-```bash
-# Execute with workdir=$pwd
-# Detect the current branch and validate the prepared environment
-current_branch=$(git branch --show-current 2>/dev/null)
-if [ -z "$current_branch" ]; then
-  echo "Detached HEAD: stop and report that the prepared worktree/branch environment is invalid. Do not check out another branch yourself."
-fi
-
-default_branch=$(gh api repos/{owner}/{repo} --jq '.default_branch' 2>/dev/null)
-```
-
-Use `current_branch` for all later commit, push, and PR steps.
-
-If you detect signs that the current checkout is not suitable for the task, treat that as an environment mismatch and stop to report it to the user. Do not perform any branch or worktree switching on your own.
-
-If the current branch is the repository default branch, stop and report the mismatch to the user, because GitHub cannot open a normal PR from the default branch back into itself. Do not try to resolve this by switching branches yourself.
 
 ---
 

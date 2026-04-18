@@ -336,7 +336,7 @@ func (pb *PromptBuilder) writeRepositoryExecutionGuardrails(sb *strings.Builder,
 		sb.WriteString(fmt.Sprintf("- If you need to push, push the current `HEAD` directly to the PR branch `%s` using `HEAD:%s`.\n", task.Branch, task.Branch))
 	} else {
 		sb.WriteString(fmt.Sprintf("- The worktree is already prepared for this task. Stay on the current local branch `%s`; do not run `git checkout`, `git switch`, or `gh pr checkout`.\n", managedWorktreeBranch(task)))
-		sb.WriteString(fmt.Sprintf("- If the checkout looks wrong, stop and report the mismatch instead of trying to fix it yourself. When you need to push, push the current `HEAD` directly to `%s` using `HEAD:%s`.\n", managedWorktreeBranch(task), managedWorktreeBranch(task)))
+		sb.WriteString(fmt.Sprintf("- When you need to push, push the current `HEAD` directly to `%s` using `HEAD:%s`.\n", managedWorktreeBranch(task), managedWorktreeBranch(task)))
 	}
 	sb.WriteString("\n---\n\n")
 }

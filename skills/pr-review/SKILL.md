@@ -7,14 +7,6 @@ description: Review pull requests, diffs, or recent code changes with a multi-as
 
 This skill converts the copied PR review toolkit into a skill-oriented workflow. It coordinates the bundled review prompts under `references/` and uses `commands/review-pr.md` as the high-level orchestration reference.
 
-## Git Execution Guardrail
-
-For every terminal tool call that runs `git`, you must set `workdir=$pwd`.
-
-- Treat `$pwd` as the root of the already-prepared repository worktree for this task.
-- Do not run any `git` command from a parent checkout, sibling checkout, or fallback directory.
-- If `$pwd` is not the prepared worktree or the repository context looks wrong, stop and report the mismatch instead of running `git` elsewhere.
-
 ## What this skill owns
 
 Use this skill for:
@@ -45,20 +37,9 @@ The user has already prepared the correct git workspace and target branch before
 
 Do not create a new branch, do not switch branches, do not recreate the worktree, and do not try to "fix" the environment by moving to another checkout. Review the current diff or PR context from the checkout that is already prepared for you.
 
-```bash
-# Execute with workdir=$pwd
-# Detect the current branch and validate the prepared environment
-current_branch=$(git branch --show-current 2>/dev/null)
-if [ -z "$current_branch" ]; then
-  echo "Detached HEAD: stop and report that the prepared worktree/branch environment is invalid. Do not check out another branch yourself."
-fi
-```
-
 Use `current_branch` as the basis for local diff inspection and any optional simplify-mode edits.
 
-In normal PR review runs, `current_branch` should already represent the prepared PR head. Do not compare it against another ad hoc local branch; use `owner/repo/main` as the default review baseline unless the user explicitly requests another base or narrower scope.
-
-If you detect signs that the current checkout is not suitable for the task, treat that as an environment mismatch and stop to report it to the user. Do not perform any branch or worktree switching on your own.
+Use `owner/repo/main` as the default review baseline unless the user explicitly requests another base or narrower scope.
 
 ## Aspect routing
 
